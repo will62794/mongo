@@ -66,5 +66,5 @@ executor:
       set_parameters:
         enableTestCommands: 1
         disableLogicalSessionCacheRefresh: false
-        logicalSessionRefreshMillis: 100
+        logicalSessionRefreshMillis: 1
     num_nodes: 3

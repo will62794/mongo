@@ -84,15 +84,17 @@
         coll, t1Op, t2Op, expectedDocs2, WriteConflictHelpers.T2StartsSecondAndWins, initOp);
 
     print("delete-delete conflict");
-    initOp = {insert: collName, documents: [{_id: 1}]};  // the document to delete.
-    t1Op = {delete: collName, deletes: [{q: {_id: 1}, limit: 1}]};
-    t2Op = {delete: collName, deletes: [{q: {_id: 1}, limit: 1}]};
-    expectedDocs1 = [];
-    WriteConflictHelpers.writeConflictTest(
-        coll, t1Op, t2Op, expectedDocs1, WriteConflictHelpers.T1StartsFirstAndWins, initOp);
-    expectedDocs2 = [];
-    WriteConflictHelpers.writeConflictTest(
-        coll, t1Op, t2Op, expectedDocs2, WriteConflictHelpers.T2StartsSecondAndWins, initOp);
+    for(var i=0;i<100;i++){
+        initOp = {insert: collName, documents: [{_id: 1}]};  // the document to delete.
+        t1Op = {delete: collName, deletes: [{q: {_id: 1}, limit: 1}]};
+        t2Op = {delete: collName, deletes: [{q: {_id: 1}, limit: 1}]};
+        expectedDocs1 = [];
+        WriteConflictHelpers.writeConflictTest(
+            coll, t1Op, t2Op, expectedDocs1, WriteConflictHelpers.T1StartsFirstAndWins, initOp);
+        expectedDocs2 = [];
+        WriteConflictHelpers.writeConflictTest(
+            coll, t1Op, t2Op, expectedDocs2, WriteConflictHelpers.T2StartsSecondAndWins, initOp);
+    }
 
     print("update-delete conflict");
     initOp = {insert: collName, documents: [{_id: 1}]};  // the document to delete/update.

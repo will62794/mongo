@@ -27,6 +27,9 @@
  *    it in the license file.
  */
 
+
+#define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kReplication
+
 #include "mongo/platform/basic.h"
 
 #include "mongo/db/transaction_reaper.h"
@@ -49,6 +52,7 @@
 #include "mongo/s/grid.h"
 #include "mongo/stdx/memory.h"
 #include "mongo/util/scopeguard.h"
+#include "mongo/util/log.h"
 
 namespace mongo {
 namespace {
@@ -86,6 +90,7 @@ public:
 
     int reap(OperationContext* opCtx) override {
         auto const coord = mongo::repl::ReplicationCoordinator::get(opCtx);
+        log() << "TransactionReaper start reaping.";
 
         Handler handler(opCtx, *_collection);
         if (!handler.initialize()) {
@@ -108,6 +113,7 @@ public:
             NamespaceString::kSessionTransactionsTableNamespace, query, 0, 0, &kIdProjection);
 
         while (cursor->more()) {
+            log() << "TransactionReaper reaping: " << cursor->next();
             auto transactionSession = SessionsCollectionFetchResultIndividualResult::parse(
                 "TransactionSession"_sd, cursor->next());
 

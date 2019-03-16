@@ -577,6 +577,9 @@ void execCommandDatabase(OperationContext* opCtx,
                          const OpMsgRequest& request,
                          rpc::ReplyBuilderInterface* replyBuilder,
                          const ServiceEntryPointCommon::Hooks& behaviors) {
+    if(command->getName()=="delete"){
+        log() << "### Running command: " << request.body;
+    }
     CommandHelpers::uassertShouldAttemptParse(opCtx, command, request);
     BSONObjBuilder extraFieldsBuilder;
     auto startOperationTime = getClientOperationTime(opCtx);
