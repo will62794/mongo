@@ -363,6 +363,7 @@ void LogicalSessionCacheImpl::_refresh(Client* client) {
     }
 
     // Remove the ending sessions from the sessions collection.
+    log() << "### Remove the ending sessions from the sessions collection.";
     uassertStatusOK(_sessionsColl->removeRecords(opCtx, explicitlyEndingSessions));
     explicitlyEndingBackSwaper.dismiss();
     {
@@ -388,6 +389,8 @@ void LogicalSessionCacheImpl::_refresh(Client* client) {
             }
         }
     }
+
+    log()<< "### openCursorSessions size: " << openCursorSessions.size();
 
     // think about pruning ending and active out of openCursorSessions
     auto statusAndRemovedSessions = _sessionsColl->findRemovedSessions(opCtx, openCursorSessions);

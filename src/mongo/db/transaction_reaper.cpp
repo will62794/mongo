@@ -90,7 +90,7 @@ public:
 
     int reap(OperationContext* opCtx) override {
         auto const coord = mongo::repl::ReplicationCoordinator::get(opCtx);
-        log() << "TransactionReaper start reaping.";
+//        log() << "TransactionReaper start reaping.";
 
         Handler handler(opCtx, *_collection);
         if (!handler.initialize()) {
@@ -113,7 +113,7 @@ public:
             NamespaceString::kSessionTransactionsTableNamespace, query, 0, 0, &kIdProjection);
 
         while (cursor->more()) {
-            log() << "TransactionReaper reaping: " << cursor->next();
+//            log() << "TransactionReaper reaping: " << cursor->next();
             auto transactionSession = SessionsCollectionFetchResultIndividualResult::parse(
                 "TransactionSession"_sd, cursor->next());
 

@@ -84,7 +84,7 @@
         coll, t1Op, t2Op, expectedDocs2, WriteConflictHelpers.T2StartsSecondAndWins, initOp);
 
     print("delete-delete conflict");
-    for(var i=0;i<100;i++){
+    for(var i=0;i<1000;i++){
         initOp = {insert: collName, documents: [{_id: 1}]};  // the document to delete.
         t1Op = {delete: collName, deletes: [{q: {_id: 1}, limit: 1}]};
         t2Op = {delete: collName, deletes: [{q: {_id: 1}, limit: 1}]};

@@ -961,7 +961,7 @@ DbResponse receivedCommands(OperationContext* opCtx,
             appendClusterAndOperationTime(
                 opCtx, &extraFieldsBuilder, &metadataBob, LogicalTime::kUninitialized);
 
-            LOG(1) << "assertion while executing command '" << request.getCommandName() << "' "
+            LOG(0) << "assertion while executing command '" << request.getCommandName() << "' "
                    << "on database '" << request.getDatabase() << "': " << ex.toString();
 
             generateErrorResponse(
@@ -985,6 +985,8 @@ DbResponse receivedCommands(OperationContext* opCtx,
     }
 
     auto response = replyBuilder->done();
+
+//    log() << "### command response: " << response;
     CurOp::get(opCtx)->debug().responseLength = response.header().dataLen();
 
     // TODO exhaust

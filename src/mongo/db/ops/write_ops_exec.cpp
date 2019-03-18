@@ -229,6 +229,7 @@ bool handleError(OperationContext* opCtx,
                  const NamespaceString& nss,
                  const write_ops::WriteCommandBase& wholeOp,
                  WriteResult* out) {
+    log() << "### handleError for " << ex.toString();
     LastError::get(opCtx->getClient()).setLastError(ex.code(), ex.reason());
     auto& curOp = *CurOp::get(opCtx);
     curOp.debug().errInfo = ex.toStatus();
@@ -875,6 +876,7 @@ static SingleWriteResult performSingleDeleteOp(OperationContext* opCtx,
         CurOp::get(opCtx)->setPlanSummary_inlock(Explain::getPlanSummary(exec.get()));
     }
 
+    log() << "### Executing delete operation: " << op.toBSON();
     uassertStatusOK(exec->executePlan());
     long long n = DeleteStage::getNumDeleted(*exec);
     curOp.debug().additiveMetrics.ndeleted = n;
@@ -902,6 +904,7 @@ static SingleWriteResult performSingleDeleteOp(OperationContext* opCtx,
 WriteResult performDeletes(OperationContext* opCtx, const write_ops::Delete& wholeOp) {
     // Delete performs its own retries, so we should not be in a WriteUnitOfWork unless we are in a
     // transaction.
+    log() << "### Perform deletes";
     auto txnParticipant = TransactionParticipant::get(opCtx);
     invariant(!opCtx->lockState()->inAWriteUnitOfWork() ||
               (txnParticipant && txnParticipant.inActiveOrKilledMultiDocumentTransaction()));
