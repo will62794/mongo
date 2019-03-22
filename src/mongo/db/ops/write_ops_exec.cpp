@@ -877,7 +877,9 @@ static SingleWriteResult performSingleDeleteOp(OperationContext* opCtx,
     }
 
     log() << "### Executing delete operation: " << op.toBSON();
-    uassertStatusOK(exec->executePlan());
+    Status res = exec->executePlan();
+    log() << "### Executed delete operation: " << op.toBSON() << ", status: " << res.toString();
+    uassertStatusOK(res);
     long long n = DeleteStage::getNumDeleted(*exec);
     curOp.debug().additiveMetrics.ndeleted = n;
 
@@ -957,8 +959,10 @@ WriteResult performDeletes(OperationContext* opCtx, const write_ops::Delete& who
             lastOpFixer.startingOp();
             out.results.emplace_back(
                 performSingleDeleteOp(opCtx, wholeOp.getNamespace(), stmtId, singleOp));
+            log() << "### Complete single delete op. status: " << out.results[0].getStatus();
             lastOpFixer.finishedOpSuccessfully();
         } catch (const DBException& ex) {
+            log() << "### handling error for single delete operation " << ex.toString();
             const bool canContinue =
                 handleError(opCtx, ex, wholeOp.getNamespace(), wholeOp.getWriteCommandBase(), &out);
             if (!canContinue)
