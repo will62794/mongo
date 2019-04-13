@@ -397,10 +397,16 @@ void WiredTigerRecoveryUnit::_txnClose(bool commit) {
                 integerToHex(_durableTimestamp.asULL());
         wtRet = s->commit_transaction(s, conf.c_str());
         LOG(3) << "WT commit_transaction for snapshot id " << _mySnapshotId;
+        if(!_readAtTimestamp.isNull()){
+            log() << "WT commit_transaction, read timestamp: " << _readAtTimestamp << ", snapshotId: " << _mySnapshotId;
+        }
     } else {
         wtRet = s->rollback_transaction(s, nullptr);
         invariant(!wtRet);
         LOG(3) << "WT rollback_transaction for snapshot id " << _mySnapshotId;
+        if(!_readAtTimestamp.isNull()){
+            log() << "WT rollback_transaction, read timestamp: " << _readAtTimestamp << ", snapshotId: " << _mySnapshotId;
+        }
     }
 
     if (_isTimestamped) {
@@ -570,6 +576,9 @@ void WiredTigerRecoveryUnit::_txnOpen() {
     }
 
     LOG(3) << "WT begin_transaction for snapshot id " << _mySnapshotId;
+    if(!_readAtTimestamp.isNull()){
+        log() << "WT begin_transaction at timestamp: " << _readAtTimestamp << ", snapshotId: " << _mySnapshotId;
+    }
 }
 
 Timestamp WiredTigerRecoveryUnit::_beginTransactionAtAllCommittedTimestamp(WT_SESSION* session) {
