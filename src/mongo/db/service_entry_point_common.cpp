@@ -577,7 +577,7 @@ void execCommandDatabase(OperationContext* opCtx,
                          const OpMsgRequest& request,
                          rpc::ReplyBuilderInterface* replyBuilder,
                          const ServiceEntryPointCommon::Hooks& behaviors) {
-    if(command->getName()=="delete"){
+    if((command->getName()=="delete") || command->getName()=="find"){
         log() << "### Running command: " << request.body;
     }
     CommandHelpers::uassertShouldAttemptParse(opCtx, command, request);

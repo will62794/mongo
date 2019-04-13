@@ -876,7 +876,7 @@ static SingleWriteResult performSingleDeleteOp(OperationContext* opCtx,
         CurOp::get(opCtx)->setPlanSummary_inlock(Explain::getPlanSummary(exec.get()));
     }
 
-    log() << "### Executing delete operation: " << op.toBSON();
+    log() << "### Executing delete operation: " << op.toBSON() << ",ns: " << ns.toString();
     Status res = exec->executePlan();
     log() << "### Executed delete operation: " << op.toBSON() << ", status: " << res.toString();
     uassertStatusOK(res);

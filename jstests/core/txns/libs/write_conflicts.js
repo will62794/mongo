@@ -86,9 +86,9 @@ var WriteConflictHelpers = (function() {
         session2.commitTransaction();
         // sleep(1);
         sleep(Math.round(Math.random()*25));
-        const res = session1Coll.runCommand(txn1Op);
+        res = session1Coll.runCommand(txn1Op);
         // Not a writeError but a total command failure
-        printjson(res);
+        printjson("command res: " + tojson(res));
         assert.eq(res.ok, 0);
         assert(!res.hasOwnProperty("writeErrors"));
         assert.commandFailedWithCode(res, ErrorCodes.WriteConflict);
