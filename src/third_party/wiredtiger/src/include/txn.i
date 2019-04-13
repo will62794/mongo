@@ -1097,9 +1097,9 @@ __wt_txn_update_check(WT_SESSION_IMPL *session, WT_UPDATE *upd)
 	for (;upd != NULL && !__wt_txn_upd_visible(session, upd);
 	    upd = upd->next) {
 		if (upd->txnid != WT_TXN_ABORTED) {
-			__wt_verbose(session,
-						 WT_VERB_RECOVERY_PROGRESS,
-						 "__wt_txn_update_check,tid:%lu,checking update from tid %lu\n", txn->id, upd->txnid);
+//			__wt_verbose(session,
+//						 WT_VERB_RECOVERY_PROGRESS,
+//						 "__wt_txn_update_check,tid:%lu,checking update from tid %lu\n", txn->id, upd->txnid);
 			if (ignore_prepare_set)
 				F_SET(txn, WT_TXN_IGNORE_PREPARE);
 			WT_STAT_CONN_INCR(session, txn_update_conflict);
