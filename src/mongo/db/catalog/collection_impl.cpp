@@ -584,6 +584,7 @@ void CollectionImpl::deleteDocument(OperationContext* opCtx,
                                     bool fromMigrate,
                                     bool noWarn,
                                     Collection::StoreDeletedDoc storeDeletedDoc) {
+    log() << "### deleteDocument, entry: ";
     if (isCapped()) {
         log() << "failing remove on a capped ns " << _ns;
         uasserted(10089, "cannot remove from a capped collection");
@@ -599,6 +600,7 @@ void CollectionImpl::deleteDocument(OperationContext* opCtx,
     }
 
     int64_t keysDeleted;
+    log() << "### deleteDocument, recordId: " << loc << ", doc: " << doc.value();
     _indexCatalog->unindexRecord(opCtx, doc.value(), loc, noWarn, &keysDeleted);
     _recordStore->deleteRecord(opCtx, loc);
 

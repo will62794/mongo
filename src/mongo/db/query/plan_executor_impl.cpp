@@ -639,6 +639,7 @@ Status PlanExecutorImpl::executePlan() {
     invariant(_currentState == kUsable);
     BSONObj obj;
     PlanExecutor::ExecState state = PlanExecutor::ADVANCED;
+    log() << "### Cranking into executePlan()";
     while (PlanExecutor::ADVANCED == state) {
         state = this->getNext(&obj, NULL);
     }

@@ -98,6 +98,8 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
         return PlanStage::IS_EOF;
     }
 
+    log() << "### Enter DeleteStage::doWork";
+
     // It is possible that after a delete was executed, a WriteConflictException occurred
     // and prevented us from returning ADVANCED with the old version of the document.
     if (_idReturning != WorkingSet::INVALID_ID) {
@@ -111,6 +113,8 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
         _idReturning = WorkingSet::INVALID_ID;
         return PlanStage::ADVANCED;
     }
+
+    log() << "### Enter DeleteStage::doWork 1";
 
     // Either retry the last WSM we worked on or get a new one from our child.
     WorkingSetID id;
@@ -146,6 +150,9 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
         }
     }
 
+    log() << "### Enter DeleteStage::doWork 2";
+
+
     // We advanced, or are retrying, and id is set to the WSM to work on.
     WorkingSetMember* member = _ws->get(id);
 
@@ -158,6 +165,9 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
     // a fetch. We should always get fetched data, and never just key data.
     invariant(member->hasObj());
 
+    log() << "### Enter DeleteState::doWork 3, recordId: " << recordId;
+
+
     // Ensure the document still exists and matches the predicate.
     bool docStillMatches;
     try {
@@ -169,6 +179,9 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
         return prepareToRetryWSM(id, out);
     }
 
+    log() << "### Enter DeleteState::doWork 4";
+
+
     if (!docStillMatches) {
         // Either the document has already been deleted, or it has been updated such that it no
         // longer matches the predicate.
@@ -177,6 +190,9 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
         }
         return PlanStage::NEED_TIME;
     }
+
+    log() << "### Enter DeleteState::doWork 5";
+
 
     // Ensure that the BSONObj underlying the WorkingSetMember is owned because saveState() is
     // allowed to free the memory.
@@ -190,6 +206,9 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
     if (_params->removeSaver) {
         uassertStatusOK(_params->removeSaver->goingToDelete(member->obj.value()));
     }
+
+    log() << "### Enter DeleteState::doWork 5";
+
 
     // TODO: Do we want to buffer docs and delete them in a group rather than saving/restoring state
     // repeatedly?
@@ -205,6 +224,7 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
     if (!_params->isExplain) {
         try {
             WriteUnitOfWork wunit(getOpCtx());
+            log() << "### deleteDocument from DeleteStage, recordId: " << recordId;
             collection()->deleteDocument(getOpCtx(),
                                          _params->stmtId,
                                          recordId,
