@@ -27,6 +27,9 @@
  *    it in the license file.
  */
 
+#define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kStorage
+
+
 #include "mongo/platform/basic.h"
 
 #include "mongo/db/exec/fetch.h"
@@ -39,6 +42,7 @@
 #include "mongo/stdx/memory.h"
 #include "mongo/util/fail_point_service.h"
 #include "mongo/util/mongoutils/str.h"
+#include "mongo/util/log.h"
 
 namespace mongo {
 
@@ -73,6 +77,7 @@ bool FetchStage::isEOF() {
 }
 
 PlanStage::StageState FetchStage::doWork(WorkingSetID* out) {
+//    log() << "FetchStage enter.";
     if (isEOF()) {
         return PlanStage::IS_EOF;
     }

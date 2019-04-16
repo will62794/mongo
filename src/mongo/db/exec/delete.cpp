@@ -165,7 +165,7 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
     // a fetch. We should always get fetched data, and never just key data.
     invariant(member->hasObj());
 
-    log() << "### Enter DeleteState::doWork 3, recordId: " << recordId;
+//    log() << "### Enter DeleteState::doWork 3, recordId: " << recordId;
 
 
     // Ensure the document still exists and matches the predicate.
@@ -179,7 +179,7 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
         return prepareToRetryWSM(id, out);
     }
 
-    log() << "### Enter DeleteState::doWork 4";
+//    log() << "### Enter DeleteState::doWork 4";
 
 
     if (!docStillMatches) {
@@ -191,7 +191,7 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
         return PlanStage::NEED_TIME;
     }
 
-    log() << "### Enter DeleteState::doWork 5";
+//    log() << "### Enter DeleteState::doWork 5";
 
 
     // Ensure that the BSONObj underlying the WorkingSetMember is owned because saveState() is
@@ -207,7 +207,7 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
         uassertStatusOK(_params->removeSaver->goingToDelete(member->obj.value()));
     }
 
-    log() << "### Enter DeleteState::doWork 5";
+//    log() << "### Enter DeleteState::doWork 5";
 
 
     // TODO: Do we want to buffer docs and delete them in a group rather than saving/restoring state
