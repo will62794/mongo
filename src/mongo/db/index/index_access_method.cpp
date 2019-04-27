@@ -341,6 +341,11 @@ RecordId AbstractIndexAccessMethod::findSingle(OperationContext* opCtx,
                                                const BSONObj& requestedKey) const {
     // Generate the key for this index.
     BSONObj actualKey;
+    auto k = requestedKey["_id"];
+//    if(k.numberInt() == 333){
+//        log() << "### IndexAccessMethod findSingle. Key: " << requestedKey;
+//    }
+
     if (_btreeState->getCollator()) {
         // For performance, call get keys only if there is a non-simple collation.
         BSONObjSet keys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
@@ -357,6 +362,11 @@ RecordId AbstractIndexAccessMethod::findSingle(OperationContext* opCtx,
         actualKey = requestedKey;
     }
 
+    auto kActual = actualKey["_id"];
+//    if(kActual.numberInt() == 333){
+//        log() << "### IndexAccessMethod findSingle. actualKey: " << actualKey;
+//    }
+
     std::unique_ptr<SortedDataInterface::Cursor> cursor(_newInterface->newCursor(opCtx));
     const auto requestedInfo = kDebugBuild ? SortedDataInterface::Cursor::kKeyAndLoc
                                            : SortedDataInterface::Cursor::kWantLoc;
@@ -367,6 +377,10 @@ RecordId AbstractIndexAccessMethod::findSingle(OperationContext* opCtx,
                 0);
 
         return kv->loc;
+    }
+
+    if(k.numberInt() == 333) {
+        log() << "### IndexAccessMethod return null RecordId";
     }
 
     return RecordId();

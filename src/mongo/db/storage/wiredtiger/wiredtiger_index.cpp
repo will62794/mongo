@@ -847,8 +847,15 @@ public:
         // By using a discriminator other than kInclusive, there is no need to distinguish
         // unique vs non-unique key formats since both start with the key.
         _query.resetToKey(finalKey, _idx.ordering(), discriminator);
+        bool iskey = key["_id"].numberInt() == 333;
+        if(iskey){
+            log() << "### WiredTigerIndex _cursorAtEof: " << _cursorAtEof;
+        }
         seekWTCursor(_query);
         updatePosition();
+        if(iskey){
+            log() << "### WiredTigerIndex RecordId, _eof, _cursorAtEof,: " << _id << "," << _eof << "," << _cursorAtEof;
+        }
         return curr(parts);
     }
 

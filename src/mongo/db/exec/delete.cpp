@@ -114,7 +114,6 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
         return PlanStage::ADVANCED;
     }
 
-    log() << "### Enter DeleteStage::doWork 1";
 
     // Either retry the last WSM we worked on or get a new one from our child.
     WorkingSetID id;
@@ -122,6 +121,8 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
         id = _idRetrying;
         _idRetrying = WorkingSet::INVALID_ID;
     } else {
+        log() << "### Enter DeleteStage::doWork 1";
+        log() << "### DeleteStage child type: " << child()->getCommonStats()->stageTypeStr;
         auto status = child()->work(&id);
 
         switch (status) {

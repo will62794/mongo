@@ -27,6 +27,8 @@
  *    it in the license file.
  */
 
+#define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kWrite
+
 #include "mongo/platform/basic.h"
 
 #include "mongo/db/exec/idhack.h"
@@ -40,6 +42,7 @@
 #include "mongo/db/exec/working_set_computed_data.h"
 #include "mongo/db/index/btree_access_method.h"
 #include "mongo/stdx/memory.h"
+#include "mongo/util/log.h"
 
 namespace mongo {
 
@@ -85,10 +88,12 @@ PlanStage::StageState IDHackStage::doWork(WorkingSetID* out) {
     WorkingSetID id = WorkingSet::INVALID_ID;
     try {
         // Look up the key by going directly to the index.
+        log() << "### Looking up key inside IDHACK";
         RecordId recordId = indexAccessMethod()->findSingle(getOpCtx(), _key);
 
         // Key not found.
         if (recordId.isNull()) {
+//            log() << "### Key not found inside IDHACK";
             _done = true;
             return PlanStage::IS_EOF;
         }
