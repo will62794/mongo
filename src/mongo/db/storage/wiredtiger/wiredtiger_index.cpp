@@ -1029,11 +1029,18 @@ protected:
     bool seekWTCursor(const KeyString& query) {
         WT_CURSOR* c = _cursor->get();
 
+        if(query.getSize()==8){
+            log() << "seekWTCursor KeyString query, size: " << query.toString() << "," << query.getSize();
+        }
+
         int cmp = -1;
         const WiredTigerItem keyItem(query.getBuffer(), query.getSize());
         setKey(c, keyItem.Get());
 
         int ret = wiredTigerPrepareConflictRetry(_opCtx, [&] { return c->search_near(c, &cmp); });
+        if(query.getSize()==8){
+            log() << "seekWTCursor ret: " << ret;
+        }
         if (ret == WT_NOTFOUND) {
             _cursorAtEof = true;
             TRACE_CURSOR << "\t not found";

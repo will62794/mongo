@@ -379,7 +379,7 @@ RecordId AbstractIndexAccessMethod::findSingle(OperationContext* opCtx,
         return kv->loc;
     }
 
-    if(k.numberInt() == 333) {
+    if(k.numberInt() == 333333333333) {
         log() << "### IndexAccessMethod return null RecordId";
     }
 
