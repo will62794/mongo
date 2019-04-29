@@ -902,6 +902,9 @@ __wt_txn_begin(WT_SESSION_IMPL *session, const char *cfg[])
 		__wt_txn_get_snapshot(session);
 	}
 
+//    if(txn->read_timestamp > 0 ){
+//        printf("WT begin_transaction, id: %llu\n",  txn->id);
+//    }
 	F_SET(txn, WT_TXN_RUNNING);
 	if (F_ISSET(S2C(session), WT_CONN_READONLY))
 		F_SET(txn, WT_TXN_READONLY);
