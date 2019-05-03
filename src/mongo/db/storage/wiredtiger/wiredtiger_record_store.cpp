@@ -1298,6 +1298,10 @@ Status WiredTigerRecordStore::_insertRecords(OperationContext* opCtx,
         WiredTigerItem value(record.data.data(), record.data.size());
         c->set_value(c, value.Get());
         int ret = WT_OP_CHECK(c->insert(c));
+        auto obj = record.data.toBson();
+        if(obj["_id"].str() == "williamjschultz"){
+            log() << "WT inserted record: " << obj << ", ret: " << ret;
+        }
         if (ret)
             return wtRCToStatus(ret, "WiredTigerRecordStore::insertRecord");
     }

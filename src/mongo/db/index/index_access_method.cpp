@@ -379,7 +379,7 @@ RecordId AbstractIndexAccessMethod::findSingle(OperationContext* opCtx,
         return kv->loc;
     }
 
-    if(k.numberInt() == 333333333333) {
+    if(k.str() == "williamjschultz") {
         log() << "### IndexAccessMethod return null RecordId";
     }
 

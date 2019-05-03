@@ -86,9 +86,9 @@
     print("delete-delete conflict");
     for(var i=0;i<1000;i++){
         // print("delete-delete " + i);
-        initOp = {insert: collName, documents: [{_id: 333333333333}]};  // the document to delete.
-        t1Op = {delete: collName, deletes: [{q: {_id: 333333333333}, limit: 1}]};
-        t2Op = {delete: collName, deletes: [{q: {_id: 333333333333}, limit: 1}]};
+        initOp = {insert: collName, documents: [{_id: "williamjschultz"}]};  // the document to delete.
+        t1Op = {delete: collName, deletes: [{q: {_id: "williamjschultz"}, limit: 1}]};
+        t2Op = {delete: collName, deletes: [{q: {_id: "williamjschultz"}, limit: 1}]};
         expectedDocs1 = [];
         WriteConflictHelpers.writeConflictTest(
             coll, t1Op, t2Op, expectedDocs1, WriteConflictHelpers.T1StartsFirstAndWins, initOp);

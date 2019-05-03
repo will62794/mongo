@@ -142,6 +142,9 @@ var WriteConflictHelpers = (function() {
             assert.commandWorked(testDB.runCommand({killSessions: [lsid1]}));
             print("Killing session with sessionID: " + tojson(lsid2));
             assert.commandWorked(testDB.runCommand({killSessions: [lsid2]}));
+            // print("Validating collection after error.");
+            // let r = coll.validate(true);
+            // jsTestLog(r);
             throw e;
         }
 

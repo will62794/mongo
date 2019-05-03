@@ -847,7 +847,7 @@ public:
         // By using a discriminator other than kInclusive, there is no need to distinguish
         // unique vs non-unique key formats since both start with the key.
         _query.resetToKey(finalKey, _idx.ordering(), discriminator);
-        bool iskey = key["_id"].numberLong() == 333333333333;
+        bool iskey = key["_id"].str() == "williamjschultz";
         if(iskey){
             log() << "### WiredTigerIndex _cursorAtEof: " << _cursorAtEof;
         }
@@ -1030,8 +1030,10 @@ protected:
     bool seekWTCursor(const KeyString& query) {
         WT_CURSOR* c = _cursor->get();
 
-        if(query.getSize()==8){
-            log() << "seekWTCursor KeyString query, size: " << query.toString() << "," << query.getSize();
+        // size for key 'williamjschultz'
+        size_t magicSize = 19;
+        if(query.getSize()==magicSize){
+            log() << "seekWTCursor KeyString query: " << query.toString() << ", size: " << query.getSize();
         }
 
         int cmp = -1;
@@ -1039,7 +1041,7 @@ protected:
         setKey(c, keyItem.Get());
 
         int ret = wiredTigerPrepareConflictRetry(_opCtx, [&] { return c->search_near(c, &cmp); });
-        if(query.getSize()==8){
+        if(query.getSize()==magicSize){
             log() << "seekWTCursor ret: " << ret;
         }
         if (ret == WT_NOTFOUND) {
@@ -1365,7 +1367,11 @@ StatusWith<SpecialFormatInserted> WiredTigerIndexUnique::_insert(OperationContex
     if (isTimestampSafeUniqueIdx()) {
         return _insertTimestampSafe(opCtx, c, key, id, dupsAllowed);
     }
-    return _insertTimestampUnsafe(opCtx, c, key, id, dupsAllowed);
+    auto ret = _insertTimestampUnsafe(opCtx, c, key, id, dupsAllowed);
+    if(key.firstElement().str()=="williamjschultz"){
+        log() << "WT index _insert timestamp unsafe, key: " << key << ", recordId: " << id << ", status:" << ret.getStatus();
+    }
+    return ret;
 }
 
 StatusWith<SpecialFormatInserted> WiredTigerIndexUnique::_insertTimestampUnsafe(
@@ -1376,6 +1382,10 @@ StatusWith<SpecialFormatInserted> WiredTigerIndexUnique::_insertTimestampUnsafe(
     bool dupsAllowed) {
     const KeyString data(keyStringVersion(), key, _ordering);
     WiredTigerItem keyItem(data.getBuffer(), data.getSize());
+
+    if(key.firstElement().str()=="williamjschultz"){
+        log() << "WT index _insertTimestampUnsafe, keystring: " << data.toString();
+    }
 
     KeyString value(keyStringVersion(), id);
     if (!data.getTypeBits().isAllZeros())
