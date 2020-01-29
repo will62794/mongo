@@ -53,7 +53,6 @@ NetworkInterfaceMock::NetworkInterfaceMock()
     : _waitingToRunMask(0),
       _currentlyRunning(kNoThread),
       //      _now(fassert(18653, dateFromISOString("2014-08-01T00:00:00Z"))),
-      //      _now(fassert(18653, Date_t::min())),
       _now(Date_t::fromMillisSinceEpoch(1)),
       _hasStarted(false),
       _inShutdown(false),

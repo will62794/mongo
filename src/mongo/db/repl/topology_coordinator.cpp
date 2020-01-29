@@ -744,6 +744,7 @@ HeartbeatResponseAction TopologyCoordinator::processHeartbeatResponse(
                               << " retries, response status: " << hbResponse.getStatus();
     }
 
+    log() << "Current config term: " << _rsConfig.getConfigTerm();
     if (hbResponse.isOK() && hbResponse.getValue().hasConfig()) {
         const long long currentConfigVersion =
             _rsConfig.isInitialized() ? _rsConfig.getConfigVersion() : -2;
@@ -757,8 +758,10 @@ HeartbeatResponseAction TopologyCoordinator::processHeartbeatResponse(
         } else {
             // Could be we got the newer version before we got the response, or the
             // target erroneously sent us one, even through it isn't newer.
-            if (newConfig.getConfigVersion() < currentConfigVersion &&
-                newConfig.getConfigTerm() <= _rsConfig.getConfigTerm()) {
+            if ((newConfig.getConfigTerm() == _rsConfig.getConfigTerm() &&
+                 newConfig.getConfigVersion() < currentConfigVersion) ||
+                newConfig.getConfigTerm() < _rsConfig.getConfigTerm()) {
+                log() << "### OLDER CONFIG";
                 LOG(1) << "Config version from heartbeat was older than ours.";
             } else {
                 LOG(2) << "Config from heartbeat response was same as ours.";

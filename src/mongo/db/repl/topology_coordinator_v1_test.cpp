@@ -3168,7 +3168,7 @@ public:
         TopoCoordTest::setUp();
         updateConfig(BSON("_id"
                           << "rs0"
-                          << "version" << 5 << "members"
+                          << "version" << 5 << "term" << 1 << "members"
                           << BSON_ARRAY(BSON("_id" << 0 << "host"
                                                    << "host1:27017")
                                         << BSON("_id" << 1 << "host"
@@ -3513,6 +3513,88 @@ TEST_F(HeartbeatResponseTestV1, ShouldNotChangeSyncSourceWhenMemberNotInConfig) 
     ReplSetMetadata replMetadata(0, {OpTime(), Date_t()}, OpTime(), 10, OID(), -1, -1);
     ASSERT_TRUE(getTopoCoord().shouldChangeSyncSource(
         HostAndPort("host4"), replMetadata, makeOplogQueryMetadata(), now()));
+}
+
+TEST_F(HeartbeatResponseTestV1, NodeRejectsConfigInHeartbeatResponseIfNotNewer) {
+    OpTime election = OpTime(Timestamp(14, 0), 0);
+    OpTime lastOpTimeApplied = OpTime(Timestamp(13, 0), 0);
+
+    // all three members up and secondaries
+    setSelfMemberState(MemberState::RS_SECONDARY);
+
+    topoCoordSetMyLastAppliedOpTime(lastOpTimeApplied, Date_t(), false);
+    HeartbeatResponseAction nextAction = receiveUpHeartbeat(
+        HostAndPort("host2"), "rs0", MemberState::RS_PRIMARY, election, lastOpTimeApplied);
+    ASSERT_NO_ACTION(nextAction.getAction());
+
+    //////////////////
+
+    //
+    // Older config version.
+    //
+    ReplSetConfig config;
+    config.initialize(BSON("_id"
+                           << "rs0"
+                           << "version" << 2 << "members"
+                           << BSON_ARRAY(BSON("_id" << 0 << "host"
+                                                    << "host1:27017")
+                                         << BSON("_id" << 1 << "host"
+                                                       << "host2:27017")
+                                         << BSON("_id" << 2 << "host"
+                                                       << "host3:27017"))
+                           << "protocolVersion" << 1 << "settings"
+                           << BSON("heartbeatTimeoutSecs" << 5)));
+
+    ReplSetHeartbeatResponse hb;
+    hb.initialize(BSON("ok" << 1 << "v" << 1 << "state" << MemberState::RS_PRIMARY), 1)
+        .transitional_ignore();
+    hb.setConfig(config);
+    hb.setConfigVersion(2);
+    hb.setConfigTerm(1);
+    hb.setDurableOpTimeAndWallTime(
+        {lastOpTimeApplied, Date_t() + Seconds(lastOpTimeApplied.getSecs())});
+    hb.setElectionTime(election.getTimestamp());
+    StatusWith<ReplSetHeartbeatResponse> hbResponse = StatusWith<ReplSetHeartbeatResponse>(hb);
+
+    getTopoCoord().prepareHeartbeatRequestV1(now(), "rs0", HostAndPort("host2"));
+    now() += Milliseconds(1);
+    HeartbeatResponseAction action = getTopoCoord().processHeartbeatResponse(
+        now(), Milliseconds(1), HostAndPort("host2"), hbResponse);
+    // Don't reconfig to an older config.
+    ASSERT_EQ(action.getAction(), HeartbeatResponseAction::NoAction);
+
+    //
+    // Older config term.
+    //
+    config.initialize(BSON("_id"
+                           << "rs0"
+                           << "version" << 5 << "term" << 0 << "members"
+                           << BSON_ARRAY(BSON("_id" << 0 << "host"
+                                                    << "host1:27017")
+                                         << BSON("_id" << 1 << "host"
+                                                       << "host2:27017")
+                                         << BSON("_id" << 2 << "host"
+                                                       << "host3:27017"))
+                           << "protocolVersion" << 1 << "settings"
+                           << BSON("heartbeatTimeoutSecs" << 5)));
+
+    unittest::log() << "Receive heartbeat with older config term.";
+    hb.initialize(BSON("ok" << 1 << "v" << 1 << "state" << MemberState::RS_PRIMARY), 0)
+        .transitional_ignore();
+    hb.setConfig(config);
+    hb.setConfigVersion(5);
+    hb.setConfigTerm(0);
+    hb.setDurableOpTimeAndWallTime(
+        {lastOpTimeApplied, Date_t() + Seconds(lastOpTimeApplied.getSecs())});
+    hb.setElectionTime(election.getTimestamp());
+    hbResponse = StatusWith<ReplSetHeartbeatResponse>(hb);
+
+    getTopoCoord().prepareHeartbeatRequestV1(now(), "rs0", HostAndPort("host3"));
+    now() += Milliseconds(1);
+    action = getTopoCoord().processHeartbeatResponse(
+        now(), Milliseconds(1), HostAndPort("host3"), hbResponse);
+    // Don't reconfig to an older config.
+    ASSERT_EQ(action.getAction(), HeartbeatResponseAction::NoAction);
 }
 
 // TODO(dannenberg) figure out what this is trying to test..

@@ -151,6 +151,13 @@ public:
     }
 
     /**
+     * Sets _configTerm to "configTerm".
+     */
+    void setConfigTerm(int configTerm) {
+        _configTerm = configTerm;
+    }
+
+    /**
      * Initializes _config with "config".
      */
     void setConfig(const ReplSetConfig& config) {
