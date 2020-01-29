@@ -63,6 +63,9 @@ public:
         return _configVersion;
     }
 
+    /**
+     * Gets the ReplSetConfig term number of the sender.
+     */
     long long getConfigTerm() const {
         return _configTerm;
     }

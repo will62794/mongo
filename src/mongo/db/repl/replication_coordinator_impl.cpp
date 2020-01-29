@@ -4090,6 +4090,8 @@ Status ReplicationCoordinatorImpl::processHeartbeatV1(const ReplSetHeartbeatArgs
     const Date_t now = _replExecutor->now();
     result = _topCoord->prepareHeartbeatResponseV1(now, args, _settings.ourSetName(), response);
 
+    const bool isNewerConfig = (response->getConfigTerm() <= args.getConfigTerm()) &&
+        (response->getConfigVersion() < args.getConfigVersion());
     if ((result.isOK() || result == ErrorCodes::InvalidReplicaSetConfig) && _selfIndex < 0) {
         // If this node does not belong to the configuration it knows about, send heartbeats
         // back to any node that sends us a heartbeat, in case one of those remote nodes has
@@ -4098,8 +4100,7 @@ Status ReplicationCoordinatorImpl::processHeartbeatV1(const ReplSetHeartbeatArgs
         if (!senderHost.empty() && _seedList.insert(senderHost).second) {
             _scheduleHeartbeatToTarget_inlock(senderHost, -1, now);
         }
-    } else if (result.isOK() && (response->getConfigTerm() <= args.getConfigTerm()) &&
-               response->getConfigVersion() < args.getConfigVersion()) {
+    } else if (result.isOK() && isNewerConfig) {
         // Schedule a heartbeat to the sender to fetch the new config.
         // Only send this if the config (term, version) of the sender is higher.
         // We cannot cancel the enqueued heartbeat, but either this one or the enqueued heartbeat
