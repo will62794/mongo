@@ -4098,8 +4098,10 @@ Status ReplicationCoordinatorImpl::processHeartbeatV1(const ReplSetHeartbeatArgs
         if (!senderHost.empty() && _seedList.insert(senderHost).second) {
             _scheduleHeartbeatToTarget_inlock(senderHost, -1, now);
         }
-    } else if (result.isOK() && response->getConfigVersion() < args.getConfigVersion()) {
+    } else if (result.isOK() && (response->getConfigTerm() <= args.getConfigTerm()) &&
+               response->getConfigVersion() < args.getConfigVersion()) {
         // Schedule a heartbeat to the sender to fetch the new config.
+        // Only send this if the config (term, version) of the sender is higher.
         // We cannot cancel the enqueued heartbeat, but either this one or the enqueued heartbeat
         // will trigger reconfig, which cancels and reschedules all heartbeats.
         if (args.hasSender()) {

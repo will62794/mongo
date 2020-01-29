@@ -748,14 +748,17 @@ HeartbeatResponseAction TopologyCoordinator::processHeartbeatResponse(
         const long long currentConfigVersion =
             _rsConfig.isInitialized() ? _rsConfig.getConfigVersion() : -2;
         const ReplSetConfig& newConfig = hbResponse.getValue().getConfig();
-        if (newConfig.getConfigVersion() > currentConfigVersion) {
+        if ((newConfig.getConfigTerm() == _rsConfig.getConfigTerm() &&
+             newConfig.getConfigVersion() > currentConfigVersion) ||
+            (newConfig.getConfigTerm() > _rsConfig.getConfigTerm())) {
             HeartbeatResponseAction nextAction = HeartbeatResponseAction::makeReconfigAction();
             nextAction.setNextHeartbeatStartDate(nextHeartbeatStartDate);
             return nextAction;
         } else {
             // Could be we got the newer version before we got the response, or the
             // target erroneously sent us one, even through it isn't newer.
-            if (newConfig.getConfigVersion() < currentConfigVersion) {
+            if (newConfig.getConfigVersion() < currentConfigVersion &&
+                newConfig.getConfigTerm() <= _rsConfig.getConfigTerm()) {
                 LOG(1) << "Config version from heartbeat was older than ours.";
             } else {
                 LOG(2) << "Config from heartbeat response was same as ours.";

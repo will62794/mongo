@@ -63,6 +63,10 @@ public:
         return _configVersion;
     }
 
+    long long getConfigTerm() const {
+        return _configTerm;
+    }
+
     /**
      * Gets the heartbeat version number of the sender. This field was added to ensure that
      * heartbeats sent from featureCompatibilityVersion 3.6 nodes to binary version 3.4 nodes fail.
@@ -143,6 +147,7 @@ public:
 private:
     // look at the body of the isInitialized() function to see which fields are mandatory
     long long _configVersion = -1;
+    long long _configTerm = -1;
     long long _heartbeatVersion = -1;
     long long _senderId = -1;
     long long _term = -1;
