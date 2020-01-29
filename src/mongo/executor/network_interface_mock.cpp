@@ -52,7 +52,9 @@ using ResponseStatus = TaskExecutor::ResponseStatus;
 NetworkInterfaceMock::NetworkInterfaceMock()
     : _waitingToRunMask(0),
       _currentlyRunning(kNoThread),
-      _now(fassert(18653, dateFromISOString("2014-08-01T00:00:00Z"))),
+      //      _now(fassert(18653, dateFromISOString("2014-08-01T00:00:00Z"))),
+      //      _now(fassert(18653, Date_t::min())),
+      _now(Date_t::fromMillisSinceEpoch(1)),
       _hasStarted(false),
       _inShutdown(false),
       _executorNextWakeupDate(Date_t::max()) {}
@@ -432,6 +434,7 @@ Date_t NetworkInterfaceMock::runUntil(Date_t until) {
         _waitingToRunMask |= kExecutorThread;
     }
     _runReadyNetworkOperations_inlock(&lk);
+    log() << "### NetworkInterfaceMock ran until: " << _now_inlock().toMillisSinceEpoch() << "ms.";
     return _now_inlock();
 }
 

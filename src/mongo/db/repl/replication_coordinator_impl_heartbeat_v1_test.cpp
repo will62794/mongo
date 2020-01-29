@@ -72,6 +72,7 @@ ReplSetHeartbeatResponse ReplCoordHBV1Test::receiveHeartbeatFrom(const ReplSetCo
                                                                  const HostAndPort& source) {
     ReplSetHeartbeatArgsV1 hbArgs;
     hbArgs.setConfigVersion(rsConfig.getConfigVersion());
+    hbArgs.setConfigTerm(rsConfig.getConfigTerm());
     hbArgs.setSetName(rsConfig.getReplSetName());
     hbArgs.setSenderHost(source);
     hbArgs.setSenderId(sourceId);
@@ -152,7 +153,7 @@ TEST_F(ReplCoordHBV1Test,
     ASSERT_TRUE(getExternalState()->threadsStarted());
 }
 
-TEST_F(ReplCoordHBV1Test, NodeSchedulesHeartbeatToFetchConfigIfItHearsAboutNewerConfigVersion) {
+TEST_F(ReplCoordHBV1Test, NodeSchedulesHeartbeatToFetchConfigIfItHearsAboutNewerConfig) {
     setMinimumLoggedSeverity(logger::LogSeverity::Debug(3));
     auto configTerm = 1;
     auto lowerConfigVersion = 3;
@@ -177,8 +178,10 @@ TEST_F(ReplCoordHBV1Test, NodeSchedulesHeartbeatToFetchConfigIfItHearsAboutNewer
     NetworkInterfaceMock* net = getNet();
     ASSERT_FALSE(net->hasReadyRequests());
     exitNetwork();
-    receiveHeartbeatFrom(rsConfig, 1, HostAndPort("h1", 1));
 
+    // Learn about a newer config via heartbeat request.
+    log() << "### RECEIVING heartbeat with config version: " << rsConfig.getConfigVersion();
+    receiveHeartbeatFrom(rsConfig, 1, HostAndPort("h1", 1));
 
     //
     // Install the initial config.
@@ -204,10 +207,16 @@ TEST_F(ReplCoordHBV1Test, NodeSchedulesHeartbeatToFetchConfigIfItHearsAboutNewer
     BSONObjBuilder responseBuilder;
     responseBuilder << "ok" << 1;
     hbResp.addToBSON(&responseBuilder);
+    log() << "### SCHEDULING response to heartbeat to give new config with version: "
+          << rsConfig.getConfigVersion();
     net->scheduleResponse(
-            noi, startDate + Milliseconds(200), makeResponseStatus(responseBuilder.obj()));
+        noi, startDate + Milliseconds(200), makeResponseStatus(responseBuilder.obj()));
     assertRunUntil(startDate + Milliseconds(200));
 
+    // Blackhole the two outstanding heartbeat requests since we're not interested in them.
+    log() << "### Black-holing two oustanding hb requests.";
+    net->blackHole(net->getNextReadyRequest());
+    net->blackHole(net->getNextReadyRequest());
 
     ////////////////////////////
 
@@ -223,97 +232,54 @@ TEST_F(ReplCoordHBV1Test, NodeSchedulesHeartbeatToFetchConfigIfItHearsAboutNewer
                                                                       << BSON("_id" << 3 << "host"
                                                                                     << "h3:1"))
                                                         << "protocolVersion" << 1));
-
+    log() << "### RECEIVING heartbeat with config version: " << rsConfigNew.getConfigVersion();
     receiveHeartbeatFrom(rsConfigNew, 1, HostAndPort("h1", 1));
 
-//    enterNetwork();
-//    noi = net->getNextReadyRequest();
-//    const RemoteCommandRequest& request2 = noi->getRequest();
-    ASSERT_TRUE(net->hasReadyRequests());
-//    ASSERT_EQUALS(HostAndPort("h1", 1), request2.target);
-//    ReplSetHeartbeatArgsV1 hbArgs;
-//    ASSERT_OK(hbArgs.initialize(request.cmdObj));
-//    ASSERT_EQUALS("mySet", hbArgs.getSetName());
-//    ASSERT_EQUALS(-2, hbArgs.getConfigVersion());
-//    ASSERT_EQUALS(OpTime::kInitialTerm, hbArgs.getTerm());
-//    unittest::log() << "### REQUEST SCHEDULED: " << request.cmdObj;
-}
-
-TEST_F(ReplCoordHBV1Test,
-       NodeDoesNotScheduleHeartbeatToFetchConfigIfItHearsAboutConfigThatIsNotNewer) {
-    auto configTerm = 1;
-    auto lowerConfigVersion = 1;
-    auto higherConfigVersion = 2;
-    setMinimumLoggedSeverity(logger::LogSeverity::Debug(3));
-    ReplSetConfig rsConfig = assertMakeRSConfig(BSON("_id"
-                                                     << "mySet"
-                                                     << "version" << higherConfigVersion << "term"
-                                                     << configTerm << "members"
-                                                     << BSON_ARRAY(BSON("_id" << 1 << "host"
-                                                                              << "h1:1")
-                                                                   << BSON("_id" << 2 << "host"
-                                                                                 << "h2:1")
-                                                                   << BSON("_id" << 3 << "host"
-                                                                                 << "h3:1"))
-                                                     << "protocolVersion" << 1));
-    init("mySet");
-    addSelf(HostAndPort("h2", 1));
-    const Date_t startDate = getNet()->now();
-    start();
-    enterNetwork();
-    assertMemberState(MemberState::RS_STARTUP);
-    NetworkInterfaceMock* net = getNet();
-    ASSERT_FALSE(net->hasReadyRequests());
-    exitNetwork();
-
-    log() << "RECEIVING HB FROM A.";
-
-    receiveHeartbeatFrom(rsConfig, 1, HostAndPort("h1", 1));
-
-    ReplSetConfig rsConfigNew = assertMakeRSConfig(BSON("_id"
-                                                        << "mySet"
-                                                        << "version" << lowerConfigVersion << "term"
-                                                        << configTerm << "members"
-                                                        << BSON_ARRAY(BSON("_id" << 1 << "host"
-                                                                                 << "h1:1")
-                                                                      << BSON("_id" << 2 << "host"
-                                                                                    << "h2:1")
-                                                                      << BSON("_id" << 3 << "host"
-                                                                                    << "h3:1"))
-                                                        << "protocolVersion" << 1));
-
-    unittest::log() << "### RECEIVING HB FROM B.";
-    receiveHeartbeatFrom(rsConfigNew, 1, HostAndPort("h1", 1));
-
-    enterNetwork();
-    NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
-    const RemoteCommandRequest& request = noi->getRequest();
-    ASSERT_EQUALS(HostAndPort("h1", 1), request.target);
-    ReplSetHeartbeatArgsV1 hbArgs;
-    ASSERT_OK(hbArgs.initialize(request.cmdObj));
-    ASSERT_EQUALS("mySet", hbArgs.getSetName());
-    ASSERT_EQUALS(-2, hbArgs.getConfigVersion());
-    ASSERT_EQUALS(OpTime::kInitialTerm, hbArgs.getTerm());
-    unittest::log() << "### REQUEST SCHEDULED: " << request.cmdObj;
-
-
-    enterNetwork();
     noi = net->getNextReadyRequest();
-    ReplSetHeartbeatResponse hbResp;
-    hbResp.setSetName("mySet");
-    hbResp.setState(MemberState::RS_PRIMARY);
-    hbResp.setConfigVersion(rsConfig.getConfigVersion());
-    hbResp.setConfig(rsConfig);
-    // The smallest valid optime in PV1.
-    OpTime opTime(Timestamp(), 0);
-    hbResp.setAppliedOpTimeAndWallTime({opTime, Date_t()});
-    hbResp.setDurableOpTimeAndWallTime({opTime, Date_t()});
-    BSONObjBuilder responseBuilder;
-    responseBuilder << "ok" << 1;
-    hbResp.addToBSON(&responseBuilder);
-    net->scheduleResponse(
-            noi, startDate + Milliseconds(200), makeResponseStatus(responseBuilder.obj()));
-    assertRunUntil(startDate + Milliseconds(200));
+    const RemoteCommandRequest& hbrequest1 = noi->getRequest();
+    ASSERT_EQUALS(HostAndPort("h1", 1), hbrequest1.target);
+    ASSERT_OK(hbArgs.initialize(hbrequest1.cmdObj));
+    ASSERT_EQUALS("mySet", hbArgs.getSetName());
+    ASSERT_EQUALS(3, hbArgs.getConfigVersion());
+    ASSERT_EQUALS(OpTime::kInitialTerm, hbArgs.getTerm());
+    unittest::log() << "### REQUEST SCHEDULED: " << hbrequest1.cmdObj;
+
+    // Don't respond to this request.
+    net->blackHole(noi);
+
+    // Config with newer term.
+    ReplSetConfig rsConfigNewTerm =
+        assertMakeRSConfig(BSON("_id"
+                                << "mySet"
+                                << "version" << lowerConfigVersion << "term" << (configTerm + 1)
+                                << "members"
+                                << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                         << "h1:1")
+                                              << BSON("_id" << 2 << "host"
+                                                            << "h2:1")
+                                              << BSON("_id" << 3 << "host"
+                                                            << "h3:1"))
+                                << "protocolVersion" << 1));
+
+
+    log() << "### RECEIVING heartbeat with config term: " << rsConfigNewTerm.getConfigTerm();
+    receiveHeartbeatFrom(rsConfigNewTerm, 1, HostAndPort("h1", 1));
+
+    log() << "Going to get next ready request.";
+    noi = net->getNextReadyRequest();
+    const RemoteCommandRequest& hbrequest2 = noi->getRequest();
+    ASSERT_EQUALS(HostAndPort("h1", 1), hbrequest2.target);
+    ASSERT_OK(hbArgs.initialize(hbrequest2.cmdObj));
+    ASSERT_EQUALS("mySet", hbArgs.getSetName());
+    ASSERT_EQUALS(3, hbArgs.getConfigVersion());
+    ASSERT_EQUALS(OpTime::kInitialTerm, hbArgs.getTerm());
+    unittest::log() << "### REQUEST SCHEDULED: " << hbrequest2.cmdObj;
+    net->blackHole(noi);
+
+    // Shouldn't schedule any heartbeat.
+    log() << "### RECEIVING heartbeat with config term: " << rsConfigNewTerm.getConfigTerm();
+    receiveHeartbeatFrom(rsConfig, 1, HostAndPort("h1", 1));
+    ASSERT_FALSE(net->hasReadyRequests());
 }
 
 TEST_F(ReplCoordHBV1Test, AwaitIsMasterReturnsResponseOnReconfigViaHeartbeat) {

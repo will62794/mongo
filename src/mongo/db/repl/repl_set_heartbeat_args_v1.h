@@ -131,6 +131,7 @@ public:
      * The below methods set the value in the method name to 'newVal'.
      */
     void setConfigVersion(long long newVal);
+    void setConfigTerm(long long newVal);
     void setHeartbeatVersion(long long newVal);
     void setSenderId(long long newVal);
     void setSenderHost(const HostAndPort& newVal);

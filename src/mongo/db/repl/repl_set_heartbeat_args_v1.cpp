@@ -122,6 +122,10 @@ void ReplSetHeartbeatArgsV1::setConfigVersion(long long newVal) {
     _configVersion = newVal;
 }
 
+void ReplSetHeartbeatArgsV1::setConfigTerm(long long newVal) {
+    _configTerm = newVal;
+}
+
 void ReplSetHeartbeatArgsV1::setHeartbeatVersion(long long newVal) {
     _heartbeatVersion = newVal;
     _hasHeartbeatVersion = true;
