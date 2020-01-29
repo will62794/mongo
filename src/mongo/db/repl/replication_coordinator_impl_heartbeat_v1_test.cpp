@@ -152,6 +152,104 @@ TEST_F(ReplCoordHBV1Test,
     ASSERT_TRUE(getExternalState()->threadsStarted());
 }
 
+TEST_F(ReplCoordHBV1Test,
+       NodeSchedulesHeartbeatToFetchConfigIfItHearsAboutNewerConfig) {
+    setMinimumLoggedSeverity(logger::LogSeverity::Debug(3));
+    ReplSetConfig rsConfig = assertMakeRSConfig(BSON("_id"
+                                                             << "mySet"
+                                                             << "version" << 3 << "members"
+                                                             << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                                                      << "h1:1")
+                                                                                   << BSON("_id" << 2 << "host"
+                                                                                                 << "h2:1")
+                                                                                   << BSON("_id" << 3 << "host"
+                                                                                                 << "h3:1"))
+                                                             << "protocolVersion" << 1));
+    init("mySet");
+    addSelf(HostAndPort("h2", 1));
+    const Date_t startDate = getNet()->now();
+    start();
+    enterNetwork();
+    assertMemberState(MemberState::RS_STARTUP);
+    NetworkInterfaceMock* net = getNet();
+    ASSERT_FALSE(net->hasReadyRequests());
+    exitNetwork();
+
+//
+//    // Keep the same two nodes alive via v1 heartbeat.
+//    ReplSetHeartbeatArgsV1 hbArgs;
+//    hbArgs.setSetName("mySet");
+//    hbArgs.setConfigVersion(2);
+//    hbArgs.setSenderId(1);
+//    hbArgs.setSenderHost(HostAndPort("node2", 12345));
+//    hbArgs.setTerm(0);
+//    ReplSetHeartbeatResponse hbResp;
+//    ASSERT_OK(getReplCoord()->processHeartbeatV1(hbArgs, &hbResp));
+//    hbArgs.setSenderId(2);
+//    hbArgs.setSenderHost(HostAndPort("node3", 12345));
+//    ASSERT_OK(getReplCoord()->processHeartbeatV1(hbArgs, &hbResp));
+
+
+    ReplSetConfig rsConfigNew = assertMakeRSConfig(BSON("_id"
+                                                             << "mySet"
+                                                             << "version" << 4 << "members"
+                                                             << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                                                      << "h1:1")
+                                                                                   << BSON("_id" << 2 << "host"
+                                                                                                 << "h2:1")
+                                                                                   << BSON("_id" << 3 << "host"
+                                                                                                 << "h3:1"))
+                                                             << "protocolVersion" << 1));
+
+
+
+    receiveHeartbeatFrom(rsConfigNew, 1, HostAndPort("h1", 1));
+
+//    enterNetwork();
+//    NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
+//    const RemoteCommandRequest& request = noi->getRequest();
+//    ASSERT_EQUALS(HostAndPort("h1", 1), request.target);
+//    ReplSetHeartbeatArgsV1 hbArgs;
+//    ASSERT_OK(hbArgs.initialize(request.cmdObj));
+//    ASSERT_EQUALS("mySet", hbArgs.getSetName());
+//    ASSERT_EQUALS(-2, hbArgs.getConfigVersion());
+//    ASSERT_EQUALS(OpTime::kInitialTerm, hbArgs.getTerm());
+//    ReplSetHeartbeatResponse hbResp;
+//    hbResp.setSetName("mySet");
+//    hbResp.setState(MemberState::RS_PRIMARY);
+//    hbResp.setConfigVersion(rsConfig.getConfigVersion());
+//    hbResp.setConfig(rsConfig);
+//    // The smallest valid optime in PV1.
+//    OpTime opTime(Timestamp(), 0);
+//    hbResp.setAppliedOpTimeAndWallTime({opTime, Date_t()});
+//    hbResp.setDurableOpTimeAndWallTime({opTime, Date_t()});
+//    BSONObjBuilder responseBuilder;
+//    responseBuilder << "ok" << 1;
+//    hbResp.addToBSON(&responseBuilder);
+//    net->scheduleResponse(
+//            noi, startDate + Milliseconds(200), makeResponseStatus(responseBuilder.obj()));
+//    assertRunUntil(startDate + Milliseconds(200));
+//
+//    // Because the new config is stored using an out-of-band thread, we need to perform some
+//    // extra synchronization to let the executor finish the heartbeat reconfig.  We know that
+//    // after the out-of-band thread completes, it schedules new heartbeats.  We assume that no
+//    // other network operations get scheduled during or before the reconfig, though this may
+//    // cease to be true in the future.
+//    noi = net->getNextReadyRequest();
+//
+//    assertMemberState(MemberState::RS_STARTUP2);
+//    OperationContextNoop opCtx;
+//    ReplSetConfig storedConfig;
+//    ASSERT_OK(storedConfig.initialize(
+//            unittest::assertGet(getExternalState()->loadLocalConfigDocument(&opCtx))));
+//    ASSERT_OK(storedConfig.validate());
+//    ASSERT_EQUALS(3, storedConfig.getConfigVersion());
+//    ASSERT_EQUALS(3, storedConfig.getNumMembers());
+//    exitNetwork();
+//
+//    ASSERT_TRUE(getExternalState()->threadsStarted());
+}
+
 TEST_F(ReplCoordHBV1Test, AwaitIsMasterReturnsResponseOnReconfigViaHeartbeat) {
     init();
     assertStartSuccess(BSON("_id"
