@@ -79,6 +79,9 @@ public:
     // TODO: Implement this.
     class ConfigVersionAndTerm {
     public:
+        ConfigVersionAndTerm() : _version(-1), _term(OpTime::kUninitializedTerm) {}
+        ConfigVersionAndTerm(int version, long long term) : _version(version), _term(term) {}
+
         inline bool operator==(const ConfigVersionAndTerm& rhs) const {
             return true;
             //            if (_term == kUninitializedTerm || rhs._term == kUninitializedTerm) {
@@ -116,8 +119,8 @@ public:
         friend std::ostream& operator<<(std::ostream& out, const ConfigVersionAndTerm& opTime);
 
     private:
-        long long _term;
         long long _version;
+        long long _term;
     };
 
     /**
