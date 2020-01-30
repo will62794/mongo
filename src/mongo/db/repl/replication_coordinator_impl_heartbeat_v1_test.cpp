@@ -235,6 +235,7 @@ TEST_F(ReplCoordHBV1Test, NodeSchedulesHeartbeatToFetchConfigIfItHearsAboutNewer
     log() << "### RECEIVING heartbeat with config version: " << rsConfigNew.getConfigVersion();
     receiveHeartbeatFrom(rsConfigNew, 1, HostAndPort("h1", 1));
 
+    ASSERT_TRUE(net->hasReadyRequests());
     noi = net->getNextReadyRequest();
     const RemoteCommandRequest& hbrequest1 = noi->getRequest();
     ASSERT_EQUALS(HostAndPort("h1", 1), hbrequest1.target);

@@ -4090,9 +4090,9 @@ Status ReplicationCoordinatorImpl::processHeartbeatV1(const ReplSetHeartbeatArgs
     const Date_t now = _replExecutor->now();
     result = _topCoord->prepareHeartbeatResponseV1(now, args, _settings.ourSetName(), response);
 
-    //    const bool isNewerConfig = (args.getConfigTerm() > response->getConfigTerm()) ||
-    //        ((args.getConfigTerm() == response->getConfigTerm()) &&
-    //         (response->getConfigVersion() < args.getConfigVersion()));
+    // const bool isNewerConfig = (args.getConfigTerm() > response->getConfigTerm()) ||
+    //     ((args.getConfigTerm() == response->getConfigTerm()) &&
+    //      (response->getConfigVersion() < args.getConfigVersion()));
     auto theirConfig =
         ReplSetConfig::ConfigVersionAndTerm(args.getConfigVersion(), args.getConfigTerm());
     auto myConfig = ReplSetConfig::ConfigVersionAndTerm(response->getConfigVersion(),
