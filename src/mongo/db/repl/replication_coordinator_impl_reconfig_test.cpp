@@ -755,7 +755,30 @@ TEST_F(ReplCoordReconfigTest,
                           BSON_ARRAY(member(1, "n1:1") << member(2, "n2:1") << member(3, "n3:1")
                                                        << member(4, "n4:1")));
 
-    ASSERT_OK(doReconfig(args));
+
+    BSONObjBuilder result;
+    Status status(ErrorCodes::InternalError, "Not Set");
+    const auto opCtx = makeOperationContext();
+    stdx::thread reconfigThread;
+    log() << "### Starting reconfig (1) in separate thread.";
+    reconfigThread = stdx::thread(
+            [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
+
+    auto net = getNet();
+    enterNetwork();
+    respondToHeartbeat(net);
+    respondToHeartbeat(net);
+    exitNetwork();
+
+    ASSERT_OK(getReplCoord()->setLastAppliedOptime_forTest(configVersion, 3, commitPoint));
+    ASSERT_OK(getReplCoord()->setLastDurableOptime_forTest(configVersion, 3, commitPoint));
+
+    // The initial reconfig should succeed, since there is no config prior to the initial
+    // config.
+    reconfigThread.join();
+    ASSERT_OK(status);
+
+//    ASSERT_OK(doReconfig(args));
 }
 
 TEST_F(ReplCoordReconfigTest,
