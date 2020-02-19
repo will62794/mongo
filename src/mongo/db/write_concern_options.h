@@ -52,7 +52,7 @@ public:
     static const BSONObj InternalMajorityNoSnapshot;
 
     static constexpr StringData kWriteConcernField = "writeConcern"_sd;
-    static const char kMajority[];  // = "majority"
+    static const char kMajority[];                    // = "majority"
     static const char kInternalMajorityNoSnapshot[];  // = "internalMajorityNoSnapshot"
 
     static constexpr Seconds kWriteConcernTimeoutSystem{15};
