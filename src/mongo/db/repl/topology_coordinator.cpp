@@ -977,6 +977,7 @@ bool TopologyCoordinator::haveTaggedNodesReachedOpTime(const OpTime& opTime,
     for (auto&& memberData : _memberData) {
         const OpTime& memberOpTime =
             durablyWritten ? memberData.getLastDurableOpTime() : memberData.getLastAppliedOpTime();
+
         // In addition to checking if a member has a greater/equal timestamp field we also need to
         // make sure that the memberOpTime is in the same term as the OpTime we wait for. If a
         // member's OpTime has a higher term, it indicates that this node will be stepping down. And

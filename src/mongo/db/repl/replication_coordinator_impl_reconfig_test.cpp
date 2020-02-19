@@ -322,9 +322,6 @@ TEST_F(ReplCoordTest, NodeReturnsOutOfDiskSpaceWhenSavingANewConfigFailsDuringRe
     replCoordSetMyLastDurableOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
     simulateSuccessfulV1Election();
 
-    //    replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(200, 1), 1), Date_t() + Seconds(100));
-
-
     Status status(ErrorCodes::InternalError, "Not Set");
     getExternalState()->setStoreLocalConfigDocumentStatus(
         Status(ErrorCodes::OutOfDiskSpace, "The test set this"));
@@ -431,8 +428,6 @@ TEST_F(ReplCoordTest, PrimaryNodeAcceptsNewConfigWhenReceivingAReconfigWithAComp
     replCoordSetMyLastDurableOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
     simulateSuccessfulV1Election();
 
-    //    replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(200, 1), 1), Date_t() + Seconds(100));
-
     Status status(ErrorCodes::InternalError, "Not Set");
     const auto opCtx = makeOperationContext();
     stdx::thread reconfigThread([&] {
@@ -476,8 +471,6 @@ TEST_F(ReplCoordTest, OverrideReconfigBsonTermSoReconfigSucceeds) {
     replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
     replCoordSetMyLastDurableOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
     simulateSuccessfulV1Election();  // Since we have simulated one election, term should be 1.
-
-    replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(200, 1), 1), Date_t() + Seconds(100));
 
     Status status(ErrorCodes::InternalError, "Not Set");
     const auto opCtx = makeOperationContext();
@@ -764,11 +757,6 @@ TEST_F(ReplCoordReconfigTest,
 
 TEST_F(ReplCoordReconfigTest,
        ReconfigSucceedsOnlyWhenLastCommittedOpInPrevConfigIsCommittedInCurrentConfig) {
-    //
-    // In this test there are three configs. We go from C1 -> C2 -> C3.
-    // We ensure that before moving from C2 to C3 any ops committed in C1 are committed in C2.
-    //
-
     // Start out in config version 2 to simulate case where a node that already has a non-initial
     // config.
     init();
