@@ -2966,6 +2966,10 @@ Status ReplicationCoordinatorImpl::processReplSetReconfig(OperationContext* opCt
         }
     }
 
+    // Make sure that the latest committed optime from the previous config is committed in the
+    // current config. If this is the initial reconfig, then we don't need to check this condition,
+    // since there were no prior configs. Also, for force reconfigs we bypass this safety check
+    // condition.
     auto lastCommittedInPrevConfig = _topCoord->getLastCommittedInPrevConfig();
     auto isInitialReconfig = (oldConfig.getConfigVersion() == 1);
     auto wcOpts = populateUnsetWriteConcernOptionsSyncMode(
@@ -2973,25 +2977,19 @@ Status ReplicationCoordinatorImpl::processReplSetReconfig(OperationContext* opCt
                             WriteConcernOptions::SyncMode::NONE,
                             WriteConcernOptions::kNoWaiting));
 
-    // If the last committed optime has not been set yet, then we don't need to check on it.
-    // For force reconfigs we also don't need to check this safety condition.
     if (!args.force && !isInitialReconfig &&
         !_doneWaitingForReplication_inlock(lastCommittedInPrevConfig, wcOpts)) {
-        log() << "Oplog config commitment condition failed to be satisfied. "
-                 "lastCommittedInPrevConfig: "
-              << lastCommittedInPrevConfig
-              << ", lastCommittedOpTime: " << _topCoord->getLastCommittedOpTimeAndWallTime().opTime
-              << ", currentCommittedSnapshot: " << _currentCommittedSnapshot;
+        LOGV2(51813,
+              "Oplog config commitment condition failed to be satisfied. The last committed optime "
+              "in the previous config ({}) is not committed in current config",
+              "lastCommittedInPrevConfig"_attr = lastCommittedInPrevConfig);
         return Status(ErrorCodes::ConfigurationInProgress,
                       str::stream() << "Last committed optime from previous config ("
                                     << lastCommittedInPrevConfig.toString()
                                     << ") is not committed in the current config.");
     }
 
-    log()
-        << "Config oplog commitment condition satisfied. Last committed optime in previous config ("
-        << lastCommittedInPrevConfig << ") is committed in the current config.";
-
+    LOGV2(51814, "Persisting new config to disk.");
     status = _externalState->storeLocalConfigDocument(opCtx, newConfig.toBSON());
     if (!status.isOK()) {
         LOGV2_ERROR(21422,
@@ -3098,6 +3096,10 @@ void ReplicationCoordinatorImpl::_finishReplSetReconfig(OperationContext* opCtx,
     if (!isForceReconfig) {
         log() << "Waiting for the last committed optime in the previous config ("
               << lastCommittedInPrevConfig << ") to be committed in the current config.";
+        LOGV2(51815,
+              "Waiting for the last committed optime in the previous config ({}) to be "
+              "committed in the current config.",
+              "lastCommittedInPrevConfig"_attr = lastCommittedInPrevConfig);
         auto statusDur = awaitReplication(opCtx, lastCommittedInPrevConfig, wcOpts);
         if (!statusDur.status.isOK()) {
             uasserted(ErrorCodes::ConfigurationInProgress,
