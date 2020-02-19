@@ -681,8 +681,6 @@ public:
     }
 
     void respondToHeartbeat(NetworkInterfaceMock* net, bool blackHole = false) {
-        // Schedule heartbeat responses to satisfy quorum check.
-        //        net->enterNetwork();
         const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
         const RemoteCommandRequest& request = noi->getRequest();
         repl::ReplSetHeartbeatArgsV1 hbArgs;
@@ -702,24 +700,6 @@ public:
             net->scheduleResponse(noi, net->now(), makeResponseStatus(respObj.obj()));
         }
         net->runReadyNetworkOperations();
-    }
-
-    Status doReconfig(ReplSetReconfigArgs args) {
-        BSONObjBuilder result;
-
-        Status status(ErrorCodes::InternalError, "Not Set");
-        const auto opCtx = makeOperationContext();
-        stdx::thread reconfigThread;
-        log() << "### Starting reconfig (1) in separate thread.";
-        reconfigThread = stdx::thread(
-            [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
-        //        auto net = getNet();
-
-        // The initial reconfig should succeed, since there is no config prior to the initial
-        // config.
-        reconfigThread.join();
-        return status;
-        //        ASSERT_OK(status);
     }
 };
 
@@ -792,11 +772,10 @@ TEST_F(ReplCoordReconfigTest,
     // We ensure that before moving from C2 to C3 any ops committed in C1 are committed in C2.
     //
 
-    // Start up as a secondary.
+    // Start out in config version 2 to simulate case where a node that already has a non-initial
+    // config.
     init();
     auto configVersion = 2;
-    // Start out in config version to simulate case where a node that already has a non-initial
-    // config.
     assertStartSuccess(
         configWithMembers(configVersion, BSON_ARRAY(member(1, "n1:1") << member(2, "n2:1"))),
         HostAndPort("n1", 1));
@@ -815,21 +794,14 @@ TEST_F(ReplCoordReconfigTest,
     auto commitPoint = OpTime(Timestamp(2, 1), 1);
     configVersion = 3;
     replCoordSetMyLastAppliedAndDurableOpTime(commitPoint);
-    //    ASSERT_OK(getReplCoord()->setLastAppliedOptime_forTest(configVersion, 2, commitPoint));
-    //    ASSERT_OK(getReplCoord()->setLastDurableOptime_forTest(configVersion, 2, commitPoint));
-    //    ASSERT_EQ(getReplCoord()->getLastCommittedOpTime(), commitPoint);
 
     //
     // Do a reconfig.
     //
-    //    BSONObjBuilder result;
     ReplSetReconfigArgs args;
     args.force = false;
     args.newConfigObj = configWithMembers(
         configVersion, BSON_ARRAY(member(1, "n1:1") << member(2, "n2:1") << member(3, "n3:1")));
-    //    auto net = getNet();
-    //
-    //    ASSERT_OK(doReconfig(args));
 
     BSONObjBuilder result;
     Status status(ErrorCodes::InternalError, "Not Set");
@@ -845,19 +817,6 @@ TEST_F(ReplCoordReconfigTest,
     enterNetwork();
     respondToHeartbeat(net);
     exitNetwork();
-
-    // Satisfy awaitReplication.
-    //    ASSERT_OK(getReplCoord()->setLastAppliedOptime_forTest(configVersion, 3, commitPoint));
-    //    ASSERT_OK(getReplCoord()->setLastDurableOptime_forTest(configVersion, 3, commitPoint));
-
-    log() << "### Satisfying extra heartbeats.";
-    // Heartbeats are re-scheduled upon completing reconfig.
-    //    enterNetwork();
-    //    respondToHeartbeat(net, true /* blackHole */);
-    //    respondToHeartbeat(net, true /* blackHole */);
-    //    exitNetwork();
-
-    log() << "### Blackholed heartbeats.";
 
     reconfigThread.join();
     ASSERT_EQUALS(status.code(), ErrorCodes::ConfigurationInProgress);
@@ -880,74 +839,50 @@ TEST_F(ReplCoordReconfigTest,
 
 TEST_F(ReplCoordReconfigTest,
        ForceReconfigSucceedsEvenWhenLastCommittedOpInPrevConfigIsNotCommittedInCurrentConfig) {
-    //    // Start up as a secondary.
-    //    init();
-    //    assertStartSuccess(
-    //        configWithMembers(1,
-    //                          BSON_ARRAY(member(1, "n1:1") << member(2, "n2:1") << member(3,
-    //                          "n3:1"))),
-    //        HostAndPort("n1", 1));
-    //    ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
-    //
-    //    // Simulate application of one oplog entry.
-    //    replCoordSetMyLastAppliedAndDurableOpTime(OpTime(Timestamp(1, 1), 0));
-    //
-    //    // Get elected primary.
-    //    simulateSuccessfulV1Election();
-    //    ASSERT_EQ(getReplCoord()->getMemberState(), MemberState::RS_PRIMARY);
-    //    ASSERT_EQ(getReplCoord()->getTerm(), 1);
-    //
-    //    // Advance the commit point by simulating optime reports from each node.
-    //    unittest::log() << "### Receiving optime reports from each node.";
-    //    auto commitPoint = OpTime(Timestamp(2, 1), 1);
-    //    auto configVersion = 1;
-    //    replCoordSetMyLastAppliedAndDurableOpTime(commitPoint);
-    //    ASSERT_OK(getReplCoord()->setLastAppliedOptime_forTest(configVersion, 2, commitPoint));
-    //    ASSERT_OK(getReplCoord()->setLastDurableOptime_forTest(configVersion, 2, commitPoint));
-    //    ASSERT_EQ(getReplCoord()->getLastCommittedOpTime(), commitPoint);
-    //
-    //    //
-    //    // Do an initial reconfig.
-    //    //
-    //    BSONObjBuilder result;
-    //    ReplSetReconfigArgs args;
-    //    args.force = false;
-    //    args.newConfigObj =
-    //        configWithMembers(2,
-    //                          BSON_ARRAY(member(1, "n1:1") << member(2, "n2:1") << member(3,
-    //                          "n3:1")
-    //                                                       << member(4, "n4:1")));
-    //    auto net = getNet();
-    //
-    //    ASSERT_OK(doReconfig(args));
-    //
-    //    // Heartbeats are re-scheduled upon completing reconfig.
-    //    enterNetwork();
-    //    respondToHeartbeat(net, true /* blackHole */);
-    //    respondToHeartbeat(net, true /* blackHole */);
-    //    exitNetwork();
-    //
-    //    // Advance the commit point so that we have a committed snapshot.
-    //    OpTime opti(Timestamp(3, 1), 1);
-    //    configVersion = 2;
-    //    replCoordSetMyLastAppliedAndDurableOpTime(opti, Date_t());
-    //    ASSERT_OK(getReplCoord()->setLastAppliedOptime_forTest(configVersion, 2, opti));
-    //    ASSERT_OK(getReplCoord()->setLastDurableOptime_forTest(configVersion, 2, opti));
-    //
-    //    //
-    //    // Newer config that adds a new node.
-    //    //
-    //    configVersion = 3;
-    //    args.force = true;
-    //    args.newConfigObj =
-    //        configWithMembers(configVersion,
-    //                          BSON_ARRAY(member(1, "n1:1") << member(2, "n2:1") << member(3,
-    //                          "n3:1")
-    //                                                       << member(4, "n4:1")));
-    //
-    //    // Force reconfig should succeed even though last op isn't committed in current config.
-    //    log() << "### Starting reconfig (2) in separate thread.";
-    //    ASSERT_OK(doReconfig(args));
+    // Start out in config version 2 to simulate case where a node that already has a non-initial
+    // config.
+    init();
+    auto configVersion = 2;
+    assertStartSuccess(
+        configWithMembers(configVersion, BSON_ARRAY(member(1, "n1:1") << member(2, "n2:1"))),
+        HostAndPort("n1", 1));
+    ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
+
+    // Simulate application of one oplog entry.
+    replCoordSetMyLastAppliedAndDurableOpTime(OpTime(Timestamp(1, 1), 0));
+
+    // Get elected primary.
+    simulateSuccessfulV1Election();
+    ASSERT_EQ(getReplCoord()->getMemberState(), MemberState::RS_PRIMARY);
+    ASSERT_EQ(getReplCoord()->getTerm(), 1);
+
+    // Advance your optime.
+    replCoordSetMyLastAppliedAndDurableOpTime(OpTime(Timestamp(2, 1), 1));
+
+    // Do a force reconfig.
+    configVersion = 3;
+    ReplSetReconfigArgs args;
+    args.force = true;
+    args.newConfigObj = configWithMembers(
+        configVersion, BSON_ARRAY(member(1, "n1:1") << member(2, "n2:1") << member(3, "n3:1")));
+
+    BSONObjBuilder result;
+    Status status(ErrorCodes::InternalError, "Not Set");
+    const auto opCtx = makeOperationContext();
+    stdx::thread reconfigThread;
+    log() << "### Starting reconfig (1) in separate thread.";
+    reconfigThread = stdx::thread(
+        [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
+
+    // Satisfy the quorum check.
+    log() << "### Satisfying the quorum check.";
+    auto net = getNet();
+    enterNetwork();
+    respondToHeartbeat(net);
+    exitNetwork();
+
+    reconfigThread.join();
+    ASSERT_OK(status);
 }
 
 TEST_F(
