@@ -972,11 +972,14 @@ bool TopologyCoordinator::haveTaggedNodesReachedOpTime(const OpTime& opTime,
     // to. In other words, we do not support waiting for an OpTime written by a previous primary
     // because comparing members' lastApplied/lastDurable alone is not sufficient to tell if the
     // OpTime has been replicated.
+    log() << "### My last applied optime " << getMyLastAppliedOpTime();
     invariant(opTime.getTerm() == getMyLastAppliedOpTime().getTerm());
 
     for (auto&& memberData : _memberData) {
         const OpTime& memberOpTime =
             durablyWritten ? memberData.getLastDurableOpTime() : memberData.getLastAppliedOpTime();
+        log() << "### Checking member optime for " << memberData.getHostAndPort() << ": "
+              << memberOpTime;
 
         // In addition to checking if a member has a greater/equal timestamp field we also need to
         // make sure that the memberOpTime is in the same term as the OpTime we wait for. If a
@@ -1227,6 +1230,10 @@ void TopologyCoordinator::updateLastCommittedInPrevConfig() {
 
 OpTime TopologyCoordinator::getLastCommittedInPrevConfig() {
     return _lastCommittedInPrevConfig;
+}
+
+OpTime TopologyCoordinator::getLastCommittedInPrevConfigOrNewTerm() {
+    return std::max(_lastCommittedInPrevConfig, _firstOpTimeOfMyTerm);
 }
 
 MemberData* TopologyCoordinator::_findMemberDataByMemberId(const int memberId) {

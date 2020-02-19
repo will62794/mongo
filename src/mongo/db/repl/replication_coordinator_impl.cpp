@@ -36,6 +36,8 @@
 #include "mongo/db/repl/replication_coordinator_impl.h"
 
 #include <algorithm>
+#include <fmt/format.h>
+#include <fmt/ostream.h>
 #include <functional>
 #include <limits>
 
@@ -1694,11 +1696,14 @@ bool ReplicationCoordinatorImpl::_doneWaitingForReplication_inlock(
             opTime, writeConcern.wNumNodes, useDurableOpTime);
     }
 
+    log() << "### Check done waiting for repl";
+
     StringData patternName;
     if (writeConcern.wMode == WriteConcernOptions::kMajority) {
         if (_externalState->snapshotsEnabled() && !gTestingSnapshotBehaviorInIsolation) {
             // Make sure we have a valid "committed" snapshot up to the needed optime.
             if (!_currentCommittedSnapshot) {
+                log() << "### No current committed snapshot";
                 return false;
             }
 
@@ -1789,7 +1794,7 @@ ReplicationCoordinator::StatusAndDuration ReplicationCoordinatorImpl::awaitRepli
         status = Status{ErrorCodes::WriteConcernFailed, "waiting for replication timed out"};
     }
 
-    if (getTestCommandsEnabled() && !status.isOK()) {
+    if (/*getTestCommandsEnabled() && */ !status.isOK()) {
         stdx::lock_guard lock(_mutex);
         LOGV2(21339,
               "Replication failed for write concern: {writeConcern}, waiting for optime: {opTime}, "
@@ -2954,13 +2959,49 @@ Status ReplicationCoordinatorImpl::processReplSetReconfig(OperationContext* opCt
           "newConfig_getNumMembers"_attr = newConfig.getNumMembers());
 
     if (!args.force) {
-        status = checkQuorumForReconfig(
-            _replExecutor.get(), newConfig, myIndex.getValue(), _topCoord->getTerm());
-        if (!status.isOK()) {
-            LOGV2_ERROR(21421, "replSetReconfig failed; {status}", "status"_attr = status);
-            return status;
-        }
+        //        status = checkQuorumForReconfig(
+        //            _replExecutor.get(), newConfig, myIndex.getValue(), _topCoord->getTerm());
+        //        if (!status.isOK()) {
+        //            error() << "replSetReconfig failed; " << status;
+        //            return status;
+        //        }
     }
+
+    // Check to see if the last committed optime in previous config is committed in the current
+    // config.
+    //    auto lastCommittedInPrevConfig = _topCoord->getLastCommittedInPrevConfigOrNewTerm();
+    //    auto isInitialReconfig = (oldConfig.getConfigVersion() == 1);
+    //    if (!args.force && !isInitialReconfig && !_topCoord->configOplogCommitmentCheck()) {
+    //        log() << "Oplog config commitment condition failed to be satisfied. "
+    //                 "lastCommittedInPrevConfig: "
+    //              << lastCommittedInPrevConfig;
+    //        return Status(ErrorCodes::ConfigurationInProgress,
+    //                      str::stream() << "Last committed optime from previous config is not "
+    //                                       "committed in the current config: "
+    //                                    << lastCommittedInPrevConfig.toString());
+    //    }
+    auto lastCommittedInPrevConfig = _topCoord->getLastCommittedInPrevConfigOrNewTerm();
+    auto wcOpts = WriteConcernOptions(WriteConcernOptions::kMajority,
+                                      WriteConcernOptions::SyncMode::JOURNAL,
+                                      WriteConcernOptions::kNoWaiting);
+
+    auto isInitialReconfig = (oldConfig.getConfigVersion() == 1);
+
+    // If the last committed optime has not been set yet, then we don't need to check on it.
+    // For force reconfigs we also don't need to check this safety condition.
+    if (!args.force && !isInitialReconfig &&
+        !_doneWaitingForReplication_inlock(lastCommittedInPrevConfig, wcOpts)) {
+        log() << "Oplog config commitment condition failed to be satisfied. "
+                 "lastCommittedInPrevConfig: "
+              << lastCommittedInPrevConfig << ", lastCommittedOpTime: " << _topCoord->getLastCommittedOpTimeAndWallTime().opTime << ", currentCommittedSnapshot: " << _currentCommittedSnapshot;
+        return Status(ErrorCodes::ConfigurationInProgress,
+                      str::stream() << "Last committed optime from previous config is not "
+                                       "committed in the current config: "
+                                    << lastCommittedInPrevConfig.toString());
+    }
+
+    log() << "Oplog config commitment condition satisfied. lastCommittedInPrevConfig: "
+          << lastCommittedInPrevConfig;
 
     status = _externalState->storeLocalConfigDocument(opCtx, newConfig.toBSON());
     if (!status.isOK()) {
@@ -3055,6 +3096,26 @@ void ReplicationCoordinatorImpl::_finishReplSetReconfig(OperationContext* opCtx,
 
     // Inform the index builds coordinator of the replica set reconfig.
     IndexBuildsCoordinator::get(opCtx)->onReplicaSetReconfig();
+
+
+    // Wait for the last committed optime in previous config to be committed in this new config.
+    auto lastCommittedInPrevConfig = _topCoord->getLastCommittedInPrevConfigOrNewTerm();
+    auto wcOpts = WriteConcernOptions(WriteConcernOptions::kMajority,
+                                      WriteConcernOptions::SyncMode::JOURNAL,
+                                      Milliseconds(120 * 1000));
+    auto isInitialReconfig = (oldConfig.getConfigVersion() == 1);
+
+    // If the last committed optime has not been set yet, then we don't need to check on it.
+    // For force reconfigs we also don't need to check this safety condition.
+    log() << "Waiting for lastCommitted in previous config to be committed in current config: "
+          << lastCommittedInPrevConfig;
+    if (/*!args.force &&*/ !isInitialReconfig) {
+        auto statusDur = awaitReplication(opCtx, lastCommittedInPrevConfig, wcOpts);
+        if (!statusDur.status.isOK()) {
+            log() << "Failed to commit ops in new config.";
+            uasserted(ErrorCodes::ConfigurationInProgress, "Failed to commit ops in new config.");
+        }
+    }
 }
 
 Status ReplicationCoordinatorImpl::processReplSetInitiate(OperationContext* opCtx,
@@ -4584,6 +4645,7 @@ bool ReplicationCoordinatorImpl::_updateCommittedSnapshot(
     }
     if (MONGO_unlikely(disableSnapshotting.shouldFail()))
         return false;
+    log() << "### updating committed snapshot: " << newCommittedSnapshot;
     _currentCommittedSnapshot = newCommittedSnapshot;
     _currentCommittedSnapshotCond.notify_all();
 

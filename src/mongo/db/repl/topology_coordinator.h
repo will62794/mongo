@@ -518,6 +518,8 @@ public:
      */
     OpTime getLastCommittedInPrevConfig();
 
+    OpTime getLastCommittedInPrevConfigOrNewTerm();
+
     /**
      * Sets lastVote to be for ourself in this term.
      */
