@@ -1235,7 +1235,7 @@ var ReplSetTest = function(opts) {
             for (let i = 2; i <= originalMembers.length; i++) {
                 print("ReplSetTest adding in node " + i);
                 config.members = originalMembers.slice(0, i);
-                replSetCommandWithRetry(master, {replSetReconfig: config});
+                replSetCommandWithRetry(master, {replSetReconfig: config, maxTimeMS: 60 * 1000});
                 config.version++;
             }
         }
@@ -1474,7 +1474,9 @@ var ReplSetTest = function(opts) {
 
         this._setDefaultConfigOptions(config);
 
-        assert.adminCommandWorkedAllowingNetworkError(this.getPrimary(), {replSetReconfig: config});
+        // Set a maxTimeMS so reconfig times out if it fails.
+        assert.adminCommandWorkedAllowingNetworkError(
+            this.getPrimary(), {replSetReconfig: config, maxTimeMS: 60 * 1000});
     };
 
     /**
@@ -3274,7 +3276,8 @@ var ReplSetTest = function(opts) {
 /**
  *  Global default timeout (10 minutes).
  */
-ReplSetTest.kDefaultTimeoutMS = 10 * 60 * 1000;
+// ReplSetTest.kDefaultTimeoutMS = 10 * 60 * 1000;
+ReplSetTest.kDefaultTimeoutMS = 20 * 1000;
 
 /**
  *  Global default number that's effectively infinite.
