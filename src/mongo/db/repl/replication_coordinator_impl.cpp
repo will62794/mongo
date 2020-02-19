@@ -3087,20 +3087,17 @@ void ReplicationCoordinatorImpl::_finishReplSetReconfig(OperationContext* opCtx,
     IndexBuildsCoordinator::get(opCtx)->onReplicaSetReconfig();
 
 
-    // Wait for the last committed optime in previous config to be committed in this new config.
+    // Wait for the latest committed optime in the previous config to be committed in the newly
+    // installed config. For force reconfigs we don't need to check this safety condition. In any
+    // FCV < 4.4 we also bypass this to preserve client facing behavior in mixed version sets.
     auto lastCommittedInPrevConfig = _topCoord->getLastCommittedInPrevConfig();
     auto wcOpts = WriteConcernOptions(WriteConcernOptions::kInternalMajorityNoSnapshot,
                                       WriteConcernOptions::SyncMode::UNSET,
                                       WriteConcernOptions::kNoTimeout);
 
-    // If the last committed optime has not been set yet, then we don't need to check on it. For
-    // force reconfigs we also don't need to check this safety condition. In any FCV < 4.4 we also
-    // bypass this to preserve client facing behavior in mixed version sets.
     if (!isForceReconfig &&
         serverGlobalParams.featureCompatibility.isVersion(
             ServerGlobalParams::FeatureCompatibility::Version::kFullyUpgradedTo44)) {
-        log() << "Waiting for the last committed optime in the previous config ("
-              << lastCommittedInPrevConfig << ") to be committed in the current config.";
         LOGV2(51815,
               "Waiting for the last committed optime in the previous config ({}) to be "
               "committed in the current config.",
