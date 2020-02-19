@@ -3277,7 +3277,7 @@ var ReplSetTest = function(opts) {
  *  Global default timeout (10 minutes).
  */
 // ReplSetTest.kDefaultTimeoutMS = 10 * 60 * 1000;
-ReplSetTest.kDefaultTimeoutMS = 20 * 1000;
+ReplSetTest.kDefaultTimeoutMS = 120 * 1000;
 
 /**
  *  Global default number that's effectively infinite.
