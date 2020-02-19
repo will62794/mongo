@@ -2967,16 +2967,20 @@ Status ReplicationCoordinatorImpl::processReplSetReconfig(OperationContext* opCt
     // Make sure that the latest committed optime from the previous config is committed in the
     // current config. If this is the initial reconfig, then we don't need to check this condition,
     // since there were no prior configs. Also, for force reconfigs we bypass this safety check
-    // condition.
-    auto lastCommittedInPrevConfig = _topCoord->getLastCommittedInPrevConfig();
+    // condition. In any FCV < 4.4 we also bypass it to preserve client facing behavior in mixed
+    // version sets.
     auto isInitialReconfig = (oldConfig.getConfigVersion() == 1);
+    auto enforceCheck =
+        (!args.force && !isInitialReconfig &&
+         serverGlobalParams.featureCompatibility.isVersion(
+             ServerGlobalParams::FeatureCompatibility::Version::kFullyUpgradedTo44));
+    auto lastCommittedInPrevConfig = _topCoord->getLastCommittedInPrevConfig();
     auto wcOpts = populateUnsetWriteConcernOptionsSyncMode(
         WriteConcernOptions(WriteConcernOptions::kInternalMajorityNoSnapshot,
                             WriteConcernOptions::SyncMode::NONE,
                             WriteConcernOptions::kNoWaiting));
 
-    if (!args.force && !isInitialReconfig &&
-        !_doneWaitingForReplication_inlock(lastCommittedInPrevConfig, wcOpts)) {
+    if (enforceCheck && !_doneWaitingForReplication_inlock(lastCommittedInPrevConfig, wcOpts)) {
         LOGV2(51816,
               "Oplog config commitment condition failed to be satisfied. The last committed optime "
               "in the previous config ({}) is not committed in current config",
@@ -3089,9 +3093,12 @@ void ReplicationCoordinatorImpl::_finishReplSetReconfig(OperationContext* opCtx,
                                       WriteConcernOptions::SyncMode::UNSET,
                                       WriteConcernOptions::kNoTimeout);
 
-    // If the last committed optime has not been set yet, then we don't need to check on it.
-    // For force reconfigs we also don't need to check this safety condition.
-    if (!isForceReconfig) {
+    // If the last committed optime has not been set yet, then we don't need to check on it. For
+    // force reconfigs we also don't need to check this safety condition. In any FCV < 4.4 we also
+    // bypass this to preserve client facing behavior in mixed version sets.
+    if (!isForceReconfig &&
+        serverGlobalParams.featureCompatibility.isVersion(
+            ServerGlobalParams::FeatureCompatibility::Version::kFullyUpgradedTo44)) {
         log() << "Waiting for the last committed optime in the previous config ("
               << lastCommittedInPrevConfig << ") to be committed in the current config.";
         LOGV2(51815,
