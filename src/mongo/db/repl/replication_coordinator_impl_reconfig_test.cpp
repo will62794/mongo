@@ -322,7 +322,7 @@ TEST_F(ReplCoordTest, NodeReturnsOutOfDiskSpaceWhenSavingANewConfigFailsDuringRe
     replCoordSetMyLastDurableOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
     simulateSuccessfulV1Election();
 
-    replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(200, 1), 1), Date_t() + Seconds(100));
+    //    replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(200, 1), 1), Date_t() + Seconds(100));
 
 
     Status status(ErrorCodes::InternalError, "Not Set");
@@ -431,7 +431,7 @@ TEST_F(ReplCoordTest, PrimaryNodeAcceptsNewConfigWhenReceivingAReconfigWithAComp
     replCoordSetMyLastDurableOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
     simulateSuccessfulV1Election();
 
-    replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(200, 1), 1), Date_t() + Seconds(100));
+    //    replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(200, 1), 1), Date_t() + Seconds(100));
 
     Status status(ErrorCodes::InternalError, "Not Set");
     const auto opCtx = makeOperationContext();
@@ -722,7 +722,6 @@ TEST_F(ReplCoordReconfigTest,
     ASSERT_EQ(getReplCoord()->getTerm(), 1);
 
     // Advance the commit point by simulating optime reports from nodes.
-    unittest::log() << "### Receiving optime reports from each node.";
     auto commitPoint = OpTime(Timestamp(2, 1), 1);
     auto configVersion = 2;
     replCoordSetMyLastAppliedAndDurableOpTime(commitPoint);
@@ -730,9 +729,7 @@ TEST_F(ReplCoordReconfigTest,
     ASSERT_OK(getReplCoord()->setLastDurableOptime_forTest(configVersion, 2, commitPoint));
     ASSERT_EQ(getReplCoord()->getLastCommittedOpTime(), commitPoint);
 
-    //
     // An initial reconfig should succeed, since there is no config prior to the initial config.
-    //
     ReplSetReconfigArgs args;
     args.force = false;
     args.newConfigObj =
@@ -745,7 +742,6 @@ TEST_F(ReplCoordReconfigTest,
     Status status(ErrorCodes::InternalError, "Not Set");
     const auto opCtx = makeOperationContext();
     stdx::thread reconfigThread;
-    log() << "### Starting reconfig (1) in separate thread.";
     reconfigThread = stdx::thread(
         [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
 
@@ -756,6 +752,7 @@ TEST_F(ReplCoordReconfigTest,
     respondToHeartbeat(net);
     exitNetwork();
 
+    // Satisfy oplog commitment wait.
     ASSERT_OK(getReplCoord()->setLastAppliedOptime_forTest(configVersion, 3, commitPoint));
     ASSERT_OK(getReplCoord()->setLastDurableOptime_forTest(configVersion, 3, commitPoint));
 
@@ -789,15 +786,12 @@ TEST_F(ReplCoordReconfigTest,
     ASSERT_EQ(getReplCoord()->getMemberState(), MemberState::RS_PRIMARY);
     ASSERT_EQ(getReplCoord()->getTerm(), 1);
 
-    // Advance the commit point by simulating optime reports from each node.
-    unittest::log() << "### Receiving optime reports from each node.";
+    // Write one new oplog entry.
     auto commitPoint = OpTime(Timestamp(2, 1), 1);
     configVersion = 3;
     replCoordSetMyLastAppliedAndDurableOpTime(commitPoint);
 
-    //
-    // Do a reconfig.
-    //
+    // Do a reconfig that should fail the oplog commitment pre-condition check.
     ReplSetReconfigArgs args;
     args.force = false;
     args.newConfigObj = configWithMembers(
@@ -807,12 +801,10 @@ TEST_F(ReplCoordReconfigTest,
     Status status(ErrorCodes::InternalError, "Not Set");
     const auto opCtx = makeOperationContext();
     stdx::thread reconfigThread;
-    log() << "### Starting reconfig (1) in separate thread.";
     reconfigThread = stdx::thread(
         [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
 
     // Satisfy the quorum check.
-    log() << "### Satisfying the quorum check.";
     auto net = getNet();
     enterNetwork();
     respondToHeartbeat(net);
@@ -824,11 +816,10 @@ TEST_F(ReplCoordReconfigTest,
     // Reconfig should now succeed after advancing optime of other node.
     ASSERT_OK(getReplCoord()->setLastAppliedOptime_forTest(configVersion, 2, commitPoint));
 
-    log() << "### Starting reconfig (2) in separate thread.";
     reconfigThread = stdx::thread(
         [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
 
-    log() << "### Satisfying the quorum check.";
+    // Satisfy quorum check.
     enterNetwork();
     respondToHeartbeat(net);
     exitNetwork();
@@ -859,7 +850,8 @@ TEST_F(ReplCoordReconfigTest,
     // Advance your optime.
     replCoordSetMyLastAppliedAndDurableOpTime(OpTime(Timestamp(2, 1), 1));
 
-    // Do a force reconfig.
+    // Do a force reconfig that should succeed even though oplog commitment pre-condition check is
+    // not satisfied.
     configVersion = 3;
     ReplSetReconfigArgs args;
     args.force = true;
@@ -870,12 +862,10 @@ TEST_F(ReplCoordReconfigTest,
     Status status(ErrorCodes::InternalError, "Not Set");
     const auto opCtx = makeOperationContext();
     stdx::thread reconfigThread;
-    log() << "### Starting reconfig (1) in separate thread.";
     reconfigThread = stdx::thread(
         [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
 
     // Satisfy the quorum check.
-    log() << "### Satisfying the quorum check.";
     auto net = getNet();
     enterNetwork();
     respondToHeartbeat(net);
