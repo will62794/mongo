@@ -2979,7 +2979,7 @@ Status ReplicationCoordinatorImpl::processReplSetReconfig(OperationContext* opCt
 
     if (!args.force && !isInitialReconfig &&
         !_doneWaitingForReplication_inlock(lastCommittedInPrevConfig, wcOpts)) {
-        LOGV2(51813,
+        LOGV2(51816,
               "Oplog config commitment condition failed to be satisfied. The last committed optime "
               "in the previous config ({}) is not committed in current config",
               "lastCommittedInPrevConfig"_attr = lastCommittedInPrevConfig);
