@@ -2956,7 +2956,7 @@ Status ReplicationCoordinatorImpl::processReplSetReconfig(OperationContext* opCt
           "newConfig_getNumMembers"_attr = newConfig.getNumMembers());
 
     // This is temporary to make unit tests simpler.
-    bool disableQuorumCheck = true;
+    bool disableQuorumCheck = false;
     if (!args.force && !disableQuorumCheck) {
         status = checkQuorumForReconfig(
             _replExecutor.get(), newConfig, myIndex.getValue(), _topCoord->getTerm());

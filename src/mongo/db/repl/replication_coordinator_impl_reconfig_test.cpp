@@ -362,7 +362,7 @@ TEST_F(ReplCoordTest,
     // second reconfig
     BSONObjBuilder result;
     ReplSetReconfigArgs args;
-    args.force = false;
+    args.force = true;
     args.newConfigObj = BSON("_id"
                              << "mySet"
                              << "version" << 3 << "protocolVersion" << 1 << "members"
@@ -708,7 +708,7 @@ public:
         log() << "### Starting reconfig (1) in separate thread.";
         reconfigThread = stdx::thread(
             [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
-        auto net = getNet();
+//        auto net = getNet();
 
         // The initial reconfig should succeed, since there is no config prior to the initial
         // config.
