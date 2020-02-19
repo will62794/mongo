@@ -67,13 +67,14 @@ constexpr int WriteConcernOptions::kNoWaiting;
 
 constexpr StringData WriteConcernOptions::kWriteConcernField;
 const char WriteConcernOptions::kMajority[] = "majority";
+const char WriteConcernOptions::kInternalMajorityNoSnapshot[] = "internalMajorityNoSnapshot";
 
 const BSONObj WriteConcernOptions::Default = BSONObj();
 const BSONObj WriteConcernOptions::Acknowledged(BSON("w" << W_NORMAL));
 const BSONObj WriteConcernOptions::Unacknowledged(BSON("w" << W_NONE));
 const BSONObj WriteConcernOptions::Majority(BSON("w" << WriteConcernOptions::kMajority));
-//const BSONObj WriteConcernOptions::InternalMajorityNoSnapshot(
-//        BSON("w" << WriteConcernOptions::kInternalMajorityNoSnapshot));
+const BSONObj WriteConcernOptions::InternalMajorityNoSnapshot(
+        BSON("w" << WriteConcernOptions::kInternalMajorityNoSnapshot));
 constexpr Seconds WriteConcernOptions::kWriteConcernTimeoutSystem;
 constexpr Seconds WriteConcernOptions::kWriteConcernTimeoutMigration;
 constexpr Seconds WriteConcernOptions::kWriteConcernTimeoutSharding;

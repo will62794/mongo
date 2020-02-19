@@ -56,6 +56,7 @@ const std::string ReplSetConfig::kConfigServerFieldName = "configsvr";
 const std::string ReplSetConfig::kVersionFieldName = "version";
 const std::string ReplSetConfig::kTermFieldName = "term";
 const std::string ReplSetConfig::kMajorityWriteConcernModeName = "$majority";
+const std::string ReplSetConfig::kInternalMajorityWriteConcernModeName = "$internalMajorityNoSnapshot";
 const Milliseconds ReplSetConfig::kDefaultHeartbeatInterval(2000);
 const Seconds ReplSetConfig::kDefaultHeartbeatTimeoutPeriod(10);
 const Milliseconds ReplSetConfig::kDefaultElectionTimeoutPeriod(10000);
@@ -686,7 +687,7 @@ Status ReplSetConfig::validate() const {
 
 Status ReplSetConfig::checkIfWriteConcernCanBeSatisfied(
     const WriteConcernOptions& writeConcern) const {
-    if (!writeConcern.wMode.empty() && writeConcern.wMode != WriteConcernOptions::kMajority) {
+    if (!writeConcern.wMode.empty() && writeConcern.wMode != WriteConcernOptions::kMajority && writeConcern.wMode != WriteConcernOptions::kInternalMajorityNoSnapshot) {
         StatusWith<ReplSetTagPattern> tagPatternStatus = findCustomWriteMode(writeConcern.wMode);
         if (!tagPatternStatus.isOK()) {
             return tagPatternStatus.getStatus();
@@ -822,6 +823,7 @@ void ReplSetConfig::_addInternalWriteConcernModes() {
 
     if (status.isOK()) {
         _customWriteConcernModes[kMajorityWriteConcernModeName] = pattern;
+        _customWriteConcernModes[kInternalMajorityWriteConcernModeName] = pattern;
     } else if (status != ErrorCodes::NoSuchKey) {
         // NoSuchKey means we have no $voter-tagged nodes in this config;
         // other errors are unexpected.

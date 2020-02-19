@@ -1696,10 +1696,12 @@ bool ReplicationCoordinatorImpl::_doneWaitingForReplication_inlock(
             opTime, writeConcern.wNumNodes, useDurableOpTime);
     }
 
-    log() << "### Check done waiting for repl";
+    log() << "### Check waiting for repl mode: " << writeConcern.wMode;
 
     StringData patternName;
-    if (writeConcern.wMode == WriteConcernOptions::kMajority) {
+    if (writeConcern.wMode == WriteConcernOptions::kInternalMajorityNoSnapshot){
+        patternName = ReplSetConfig::kMajorityWriteConcernModeName;
+    } else if (writeConcern.wMode == WriteConcernOptions::kMajority) {
         if (_externalState->snapshotsEnabled() && !gTestingSnapshotBehaviorInIsolation) {
             // Make sure we have a valid "committed" snapshot up to the needed optime.
             if (!_currentCommittedSnapshot) {
@@ -1874,10 +1876,14 @@ SharedSemiFuture<void> ReplicationCoordinatorImpl::_startWaitingForReplication(
     // Check if the given write concern is satisfiable before we add ourself to
     // _replicationWaiterList. On replSetReconfig, waiters that are no longer satisfiable will be
     // notified. See _setCurrentRSConfig.
+    log() << "### Checking if write concern can be satisfied in lock";
     auto satisfiableStatus = _checkIfWriteConcernCanBeSatisfied_inlock(writeConcern);
     if (!satisfiableStatus.isOK()) {
+        log() << "### Write concern could not be satisfied in lock: " << satisfiableStatus.toString();
         return Future<void>::makeReady(satisfiableStatus);
     }
+
+    log() << "### Going to check _doneWaitingForReplication_inlock";
 
     try {
         if (_doneWaitingForReplication_inlock(opTime, writeConcern)) {
@@ -2981,9 +2987,15 @@ Status ReplicationCoordinatorImpl::processReplSetReconfig(OperationContext* opCt
     //                                    << lastCommittedInPrevConfig.toString());
     //    }
     auto lastCommittedInPrevConfig = _topCoord->getLastCommittedInPrevConfigOrNewTerm();
-    auto wcOpts = WriteConcernOptions(WriteConcernOptions::kMajority,
-                                      WriteConcernOptions::SyncMode::JOURNAL,
+    auto wcOpts = WriteConcernOptions(WriteConcernOptions::kInternalMajorityNoSnapshot,
+                                      WriteConcernOptions::SyncMode::NONE,
                                       WriteConcernOptions::kNoWaiting);
+//    auto wcOpts = WriteConcernOptions(WriteConcernOptions::kMajority,
+//                                      WriteConcernOptions::SyncMode::NONE,
+//                                      WriteConcernOptions::kNoWaiting);
+    lk.lock();
+    wcOpts = _populateUnsetWriteConcernOptionsSyncMode(lk, wcOpts);
+    lk.unlock();
 
     auto isInitialReconfig = (oldConfig.getConfigVersion() == 1);
 
@@ -3100,19 +3112,22 @@ void ReplicationCoordinatorImpl::_finishReplSetReconfig(OperationContext* opCtx,
 
     // Wait for the last committed optime in previous config to be committed in this new config.
     auto lastCommittedInPrevConfig = _topCoord->getLastCommittedInPrevConfigOrNewTerm();
-    auto wcOpts = WriteConcernOptions(WriteConcernOptions::kMajority,
-                                      WriteConcernOptions::SyncMode::JOURNAL,
-                                      Milliseconds(120 * 1000));
-    auto isInitialReconfig = (oldConfig.getConfigVersion() == 1);
+    auto wcOpts = WriteConcernOptions(WriteConcernOptions::kInternalMajorityNoSnapshot,
+                                      WriteConcernOptions::SyncMode::UNSET,
+                                      Milliseconds(100000));
+//    auto wcOpts = WriteConcernOptions(WriteConcernOptions::kMajority,
+//                                      WriteConcernOptions::SyncMode::UNSET,
+//                                      Milliseconds(100000));
+//    auto isInitialReconfig = (oldConfig.getConfigVersion() == 1);
 
     // If the last committed optime has not been set yet, then we don't need to check on it.
     // For force reconfigs we also don't need to check this safety condition.
-    log() << "Waiting for lastCommitted in previous config to be committed in current config: "
-          << lastCommittedInPrevConfig;
-    if (/*!args.force &&*/ !isInitialReconfig) {
+    if (/*!args.force && !isInitialReconfig &&*/  true) {
+        log() << "Waiting for lastCommitted in previous config to be committed in current config: "
+              << lastCommittedInPrevConfig;
         auto statusDur = awaitReplication(opCtx, lastCommittedInPrevConfig, wcOpts);
         if (!statusDur.status.isOK()) {
-            log() << "Failed to commit ops in new config.";
+            log() << "Failed to commit ops in new config. Timed out waiting for optime to commit: " << lastCommittedInPrevConfig;
             uasserted(ErrorCodes::ConfigurationInProgress, "Failed to commit ops in new config.");
         }
     }

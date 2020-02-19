@@ -118,6 +118,7 @@ public:
     static const std::string kVersionFieldName;
     static const std::string kTermFieldName;
     static const std::string kMajorityWriteConcernModeName;
+    static const std::string kInternalMajorityWriteConcernModeName;
 
     // If this field is present, a repair operation potentially modified replicated data. This
     // should never be included in a valid configuration document.
