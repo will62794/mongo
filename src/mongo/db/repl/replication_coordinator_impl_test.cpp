@@ -3362,6 +3362,7 @@ TEST_F(ReplCoordTest, AwaitIsMasterResponseReturnsErrorOnHorizonChange) {
     waitForIsMasterFailPoint->waitForTimesEntered(timesEnteredFailPoint + 1);
     BSONObjBuilder garbage;
     ReplSetReconfigArgs args;
+    // Use force to bypass the oplog commitment check, which we're not worried about testing here.
     args.force = true;
     // Do a reconfig that changes the SplitHorizon and also adds a third node. This should respond
     // to all waiting isMaster requests with an error.
