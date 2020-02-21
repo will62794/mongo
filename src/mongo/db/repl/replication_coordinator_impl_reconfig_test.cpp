@@ -428,12 +428,20 @@ TEST_F(ReplCoordTest, PrimaryNodeAcceptsNewConfigWhenReceivingAReconfigWithAComp
     replCoordSetMyLastDurableOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
     simulateSuccessfulV1Election();
 
+    auto newOpTime = OpTime(Timestamp(101, 1), 1);
+    replCoordSetMyLastAppliedOpTime(newOpTime, Date_t() + Seconds(100));
+    replCoordSetMyLastDurableOpTime(newOpTime, Date_t() + Seconds(100));
+
+    // Advance optimes of secondary so we pass the config oplog commitment check.
+    ASSERT_OK(getReplCoord()->setLastAppliedOptime_forTest(2, 2, newOpTime));
+    ASSERT_OK(getReplCoord()->setLastDurableOptime_forTest(2, 2, newOpTime));
+
     Status status(ErrorCodes::InternalError, "Not Set");
     const auto opCtx = makeOperationContext();
-    stdx::thread reconfigThread([&] {
-        doReplSetReconfig(getReplCoord(), &status, opCtx.get(), OpTime::kInitialTerm, true);
-    });
+    stdx::thread reconfigThread(
+        [&] { doReplSetReconfig(getReplCoord(), &status, opCtx.get(), OpTime::kInitialTerm); });
 
+    // Satisfy quorum check.
     NetworkInterfaceMock* net = getNet();
     getNet()->enterNetwork();
     const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
