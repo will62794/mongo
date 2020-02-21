@@ -361,7 +361,7 @@ TEST_F(ReplCoordTest,
     // second reconfig
     BSONObjBuilder result;
     ReplSetReconfigArgs args;
-    args.force = true;
+    args.force = false;
     args.newConfigObj = BSON("_id"
                              << "mySet"
                              << "version" << 3 << "protocolVersion" << 1 << "members"
