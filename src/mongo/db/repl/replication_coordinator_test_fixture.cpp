@@ -126,10 +126,9 @@ void ReplCoordTest::init() {
 //    ASSERT_TRUE(_storageInterface == StorageInterface::get(service));
 
     unittest::log() << "### Setting replication process.";
-    auto replicationProcess = std::make_unique<ReplicationProcess>(_storageInterface,
-                                         std::make_unique<ReplicationConsistencyMarkersMock>(),
-                                         std::make_unique<ReplicationRecoveryMock>());
-    _replicationProcess = replicationProcess.get();
+    _replicationProcess = new ReplicationProcess(_storageInterface,
+                                                               std::make_unique<ReplicationConsistencyMarkersMock>(),
+                                                               std::make_unique<ReplicationRecoveryMock>());
     unittest::log() << "### replProcess: " << (_replicationProcess == 0);
 
 //    auto status = _replicationProcess->getConsistencyMarkers()->createInternalCollections(opCtx.get());

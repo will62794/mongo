@@ -439,17 +439,18 @@ void ReplicationCoordinatorImpl::appendConnectionStats(executor::ConnectionPoolS
 bool ReplicationCoordinatorImpl::_startLoadLocalConfig(OperationContext* opCtx) {
     // Create necessary replication collections to guarantee that if a checkpoint sees data after
     // initial sync has completed, it also sees these collections.
-    LOGV2(2131252, "create internal collections.");
-
-//    fassert(50708, _replicationProcess->getConsistencyMarkers()->createInternalCollections(opCtx));
 
     LOGV2(2131251, "Getting consistency markers");
+    _replicationProcess->getConsistencyMarkers();
+    LOGV2(2131289, "Create internal collections");
+    fassert(50708, _replicationProcess->getConsistencyMarkers()->createInternalCollections(opCtx));
+
 
     // Ensure (update if needed) the in-memory count for the oplogTruncateAfterPoint collection
     // matches the collection contents.
-//    _replicationProcess->getConsistencyMarkers()->ensureFastCountOnOplogTruncateAfterPoint(opCtx);
+    _replicationProcess->getConsistencyMarkers()->ensureFastCountOnOplogTruncateAfterPoint(opCtx);
 
-//    _replicationProcess->getConsistencyMarkers()->initializeMinValidDocument(opCtx);
+    _replicationProcess->getConsistencyMarkers()->initializeMinValidDocument(opCtx);
 
     fassert(51240, _externalState->createLocalLastVoteCollection(opCtx));
 
