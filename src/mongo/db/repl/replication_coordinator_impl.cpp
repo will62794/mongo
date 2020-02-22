@@ -3094,6 +3094,8 @@ void ReplicationCoordinatorImpl::_finishReplSetReconfig(OperationContext* opCtx,
     _performPostMemberStateUpdateAction(action);
 
     // Inform the index builds coordinator of the replica set reconfig.
+    // Note: This should probably be a mock object, and we should probably initialize ReplCoord with
+    // this coordinator object as an argument instead of reaching into the global context.
 //    IndexBuildsCoordinator::get(opCtx)->onReplicaSetReconfig();
 
 
