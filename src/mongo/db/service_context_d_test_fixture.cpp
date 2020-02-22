@@ -78,33 +78,35 @@ ServiceContextMongoDTest::ServiceContextMongoDTest(std::string engine, RepairAct
 
     storageGlobalParams.dbpath = _tempDir.path();
 
+    unittest::log() << "### Initializing the storage engine.";
     // Since unit tests start in their own directories, skip lock file and metadata file for faster
     // startup.
-    initializeStorageEngine(serviceContext,
-                            StorageEngineInitFlags::kAllowNoLockFile |
-                                StorageEngineInitFlags::kSkipMetadataFile);
+//    initializeStorageEngine(serviceContext,
+//                            StorageEngineInitFlags::kAllowNoLockFile |
+//                                StorageEngineInitFlags::kSkipMetadataFile);
 
-    DatabaseHolder::set(serviceContext, std::make_unique<DatabaseHolderImpl>());
-    IndexAccessMethodFactory::set(serviceContext, std::make_unique<IndexAccessMethodFactoryImpl>());
-    Collection::Factory::set(serviceContext, std::make_unique<CollectionImpl::FactoryImpl>());
-    IndexBuildsCoordinator::set(serviceContext, std::make_unique<IndexBuildsCoordinatorMongod>());
+    unittest::log() << "### Setting database holder.";
+//    DatabaseHolder::set(serviceContext, std::make_unique<DatabaseHolderImpl>());
+//    IndexAccessMethodFactory::set(serviceContext, std::make_unique<IndexAccessMethodFactoryImpl>());
+//    Collection::Factory::set(serviceContext, std::make_unique<CollectionImpl::FactoryImpl>());
+//    IndexBuildsCoordinator::set(serviceContext, std::make_unique<IndexBuildsCoordinatorMongod>());
 }
 
 ServiceContextMongoDTest::~ServiceContextMongoDTest() {
-    IndexBuildsCoordinator::get(getServiceContext())->shutdown();
+//    IndexBuildsCoordinator::get(getServiceContext())->shutdown();
 
-    {
-        auto opCtx = getClient()->makeOperationContext();
-        Lock::GlobalLock glk(opCtx.get(), MODE_X);
-        auto databaseHolder = DatabaseHolder::get(opCtx.get());
-        databaseHolder->closeAll(opCtx.get());
-    }
+//    {
+//        auto opCtx = getClient()->makeOperationContext();
+//        Lock::GlobalLock glk(opCtx.get(), MODE_X);
+//        auto databaseHolder = DatabaseHolder::get(opCtx.get());
+//        databaseHolder->closeAll(opCtx.get());
+//    }
 
-    shutdownGlobalStorageEngineCleanly(getServiceContext());
+//    shutdownGlobalStorageEngineCleanly(getServiceContext());
 
-    std::swap(storageGlobalParams.engine, _stashedStorageParams.engine);
-    std::swap(storageGlobalParams.engineSetByUser, _stashedStorageParams.engineSetByUser);
-    std::swap(storageGlobalParams.repair, _stashedStorageParams.repair);
+//    std::swap(storageGlobalParams.engine, _stashedStorageParams.engine);
+//    std::swap(storageGlobalParams.engineSetByUser, _stashedStorageParams.engineSetByUser);
+//    std::swap(storageGlobalParams.repair, _stashedStorageParams.repair);
 }
 
 void ServiceContextMongoDTest::setUp() {

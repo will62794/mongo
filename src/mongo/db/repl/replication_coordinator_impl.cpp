@@ -328,7 +328,7 @@ ReplicationCoordinatorImpl::ReplicationCoordinatorImpl(
 
     _termShadow.store(OpTime::kUninitializedTerm);
 
-    invariant(_service);
+//    invariant(_service);
 
     if (!isReplEnabled()) {
         return;
@@ -439,15 +439,21 @@ void ReplicationCoordinatorImpl::appendConnectionStats(executor::ConnectionPoolS
 bool ReplicationCoordinatorImpl::_startLoadLocalConfig(OperationContext* opCtx) {
     // Create necessary replication collections to guarantee that if a checkpoint sees data after
     // initial sync has completed, it also sees these collections.
-    fassert(50708, _replicationProcess->getConsistencyMarkers()->createInternalCollections(opCtx));
+    LOGV2(2131252, "create internal collections.");
+
+//    fassert(50708, _replicationProcess->getConsistencyMarkers()->createInternalCollections(opCtx));
+
+    LOGV2(2131251, "Getting consistency markers");
 
     // Ensure (update if needed) the in-memory count for the oplogTruncateAfterPoint collection
     // matches the collection contents.
-    _replicationProcess->getConsistencyMarkers()->ensureFastCountOnOplogTruncateAfterPoint(opCtx);
+//    _replicationProcess->getConsistencyMarkers()->ensureFastCountOnOplogTruncateAfterPoint(opCtx);
 
-    _replicationProcess->getConsistencyMarkers()->initializeMinValidDocument(opCtx);
+//    _replicationProcess->getConsistencyMarkers()->initializeMinValidDocument(opCtx);
 
     fassert(51240, _externalState->createLocalLastVoteCollection(opCtx));
+
+    LOGV2(2131255, "Loading last vote document.");
 
     StatusWith<LastVote> lastVote = _externalState->loadLocalLastVoteDocument(opCtx);
     if (!lastVote.isOK()) {
@@ -511,10 +517,12 @@ bool ReplicationCoordinatorImpl::_startLoadLocalConfig(OperationContext* opCtx) 
         fassertFailedNoTrace(28545);
     }
 
+    LOGV2(2131257, "Reading last oplog op.");
+
     // Read the last op from the oplog after cleaning up any partially applied batches.
     const auto stableTimestamp = boost::none;
-    _replicationProcess->getReplicationRecovery()->recoverFromOplog(opCtx, stableTimestamp);
-    reconstructPreparedTransactions(opCtx, OplogApplication::Mode::kRecovering);
+//    _replicationProcess->getReplicationRecovery()->recoverFromOplog(opCtx, stableTimestamp);
+//    reconstructPreparedTransactions(opCtx, OplogApplication::Mode::kRecovering);
 
     const auto lastOpTimeAndWallTimeResult = _externalState->loadLastOpTimeAndWallTime(opCtx);
 
@@ -551,6 +559,7 @@ void ReplicationCoordinatorImpl::_finishLoadLocalConfig(
     const ReplSetConfig& localConfig,
     const StatusWith<OpTimeAndWallTime>& lastOpTimeAndWallTimeStatus,
     const StatusWith<LastVote>& lastVoteStatus) {
+    LOGV2(2131258, "Finishing load local config.");
     if (!cbData.status.isOK()) {
         LOGV2_DEBUG(21314,
                     1,
@@ -1092,8 +1101,8 @@ void ReplicationCoordinatorImpl::signalDrainComplete(OperationContext* opCtx,
     // internal operations. Although secondaries cannot accept writes, a step up can kill writes
     // that were blocked behind the RSTL lock held by a step down attempt. These writes will be
     // killed with a retryable error code during step up.
-    AutoGetRstlForStepUpStepDown arsu(
-        this, opCtx, ReplicationCoordinator::OpsKillingStateTransitionEnum::kStepUp);
+//    AutoGetRstlForStepUpStepDown arsu(
+//        this, opCtx, ReplicationCoordinator::OpsKillingStateTransitionEnum::kStepUp);
     lk.lock();
 
     // Exit drain mode only if we're actually in draining mode, the apply buffer is empty in the
@@ -1263,8 +1272,8 @@ void ReplicationCoordinatorImpl::_setMyLastAppliedOpTimeAndWallTime(
 
     // The last applied opTime should never advance beyond the global timestamp (i.e. the latest
     // cluster time). Not enforced if the logical clock is disabled, e.g. for arbiters.
-    dassert(!LogicalClock::get(getServiceContext())->isEnabled() ||
-            _externalState->getGlobalTimestamp(getServiceContext()) >= opTime.getTimestamp());
+//    dassert(!LogicalClock::get(getServiceContext())->isEnabled() ||
+//            _externalState->getGlobalTimestamp(getServiceContext()) >= opTime.getTimestamp());
 
     _topCoord->setMyLastAppliedOpTimeAndWallTime(
         opTimeAndWallTime, _replExecutor->now(), isRollbackAllowed);
@@ -2703,10 +2712,10 @@ Status ReplicationCoordinatorImpl::processReplSetGetStatus(
         }
     }
 
-    BSONObj electionCandidateMetrics =
-        ReplicationMetrics::get(getServiceContext()).getElectionCandidateMetricsBSON();
-    BSONObj electionParticipantMetrics =
-        ReplicationMetrics::get(getServiceContext()).getElectionParticipantMetricsBSON();
+    BSONObj electionCandidateMetrics = BSONObj();
+//        ReplicationMetrics::get(getServiceContext()).getElectionCandidateMetricsBSON();
+    BSONObj electionParticipantMetrics = BSONObj();
+//        ReplicationMetrics::get(getServiceContext()).getElectionParticipantMetricsBSON();
 
     stdx::lock_guard<Latch> lk(_mutex);
     Status result(ErrorCodes::InternalError, "didn't set status in prepareStatusResponse");
@@ -3084,7 +3093,7 @@ void ReplicationCoordinatorImpl::_finishReplSetReconfig(OperationContext* opCtx,
     _performPostMemberStateUpdateAction(action);
 
     // Inform the index builds coordinator of the replica set reconfig.
-    IndexBuildsCoordinator::get(opCtx)->onReplicaSetReconfig();
+//    IndexBuildsCoordinator::get(opCtx)->onReplicaSetReconfig();
 
 
     // Wait for the latest committed optime in the previous config to be committed in the newly
@@ -3463,7 +3472,8 @@ void ReplicationCoordinatorImpl::_performPostMemberStateUpdateAction(
 void ReplicationCoordinatorImpl::_postWonElectionUpdateMemberState(WithLock lk) {
     invariant(_topCoord->getTerm() != OpTime::kUninitializedTerm);
     _electionId = OID::fromTerm(_topCoord->getTerm());
-    auto ts = LogicalClock::get(getServiceContext())->reserveTicks(1).asTimestamp();
+//    auto ts = LogicalClock::get(getServiceContext())->reserveTicks(1).asTimestamp();
+    auto ts = Timestamp(10, 1);
     _topCoord->processWinElection(_electionId, ts);
     const PostMemberStateUpdateAction nextAction =
         _updateMemberStateFromTopologyCoordinator(lk, nullptr);
@@ -3538,8 +3548,8 @@ void ReplicationCoordinatorImpl::CatchupState::start_inlock() {
 void ReplicationCoordinatorImpl::CatchupState::abort_inlock(PrimaryCatchUpConclusionReason reason) {
     invariant(_repl->_getMemberState_inlock().primary());
 
-    ReplicationMetrics::get(getGlobalServiceContext())
-        .incrementNumCatchUpsConcludedForReason(reason);
+//    ReplicationMetrics::get(getGlobalServiceContext())
+//        .incrementNumCatchUpsConcludedForReason(reason);
 
     LOGV2(21363, "Exited primary catch-up mode.");
     // Clean up its own members.
@@ -3574,7 +3584,7 @@ void ReplicationCoordinatorImpl::CatchupState::signalHeartbeatUpdate_inlock() {
               "myLastApplied"_attr = myLastApplied);
         // Report the number of ops applied during catchup in replSetGetStatus once the primary is
         // caught up.
-        ReplicationMetrics::get(getGlobalServiceContext()).setNumCatchUpOps(_numCatchUpOps);
+//        ReplicationMetrics::get(getGlobalServiceContext()).setNumCatchUpOps(_numCatchUpOps);
         abort_inlock(PrimaryCatchUpConclusionReason::kAlreadyCaughtUp);
         return;
     }
@@ -3585,7 +3595,7 @@ void ReplicationCoordinatorImpl::CatchupState::signalHeartbeatUpdate_inlock() {
     }
     _targetOpTime = *targetOpTime;
 
-    ReplicationMetrics::get(getGlobalServiceContext()).setTargetCatchupOpTime(_targetOpTime);
+//    ReplicationMetrics::get(getGlobalServiceContext()).setTargetCatchupOpTime(_targetOpTime);
 
     LOGV2(21365,
           "Heartbeats updated catchup target optime to {targetOpTime}",
@@ -3607,7 +3617,7 @@ void ReplicationCoordinatorImpl::CatchupState::signalHeartbeatUpdate_inlock() {
         // Only increment the 'numCatchUps' election metric the first time we add a waiter, so that
         // we only increment it once each time a primary has to catch up. If there is already an
         // existing waiter, then the node is catching up and has already been counted.
-        ReplicationMetrics::get(getGlobalServiceContext()).incrementNumCatchUps();
+//        ReplicationMetrics::get(getGlobalServiceContext()).incrementNumCatchUps();
     }
 
     auto targetOpTimeCB = [this](Status status) {
@@ -3621,7 +3631,7 @@ void ReplicationCoordinatorImpl::CatchupState::signalHeartbeatUpdate_inlock() {
                   "myLastApplied"_attr = myLastApplied);
             // Report the number of ops applied during catchup in replSetGetStatus once the primary
             // is caught up.
-            ReplicationMetrics::get(getGlobalServiceContext()).setNumCatchUpOps(_numCatchUpOps);
+//            ReplicationMetrics::get(getGlobalServiceContext()).setNumCatchUpOps(_numCatchUpOps);
             abort_inlock(PrimaryCatchUpConclusionReason::kSucceeded);
         }
     };
@@ -4371,15 +4381,15 @@ Status ReplicationCoordinatorImpl::processReplSetRequestVotes(
         const OpTime maxAppliedOpTime = _topCoord->latestKnownOpTime();
         const double priorityAtElection = _rsConfig.getMemberAt(_selfIndex).getPriority();
 
-        ReplicationMetrics::get(getServiceContext())
-            .setElectionParticipantMetrics(votedForCandidate,
-                                           electionTerm,
-                                           lastVoteDate,
-                                           electionCandidateMemberId,
-                                           voteReason,
-                                           lastAppliedOpTime,
-                                           maxAppliedOpTime,
-                                           priorityAtElection);
+//        ReplicationMetrics::get(getServiceContext())
+//            .setElectionParticipantMetrics(votedForCandidate,
+//                                           electionTerm,
+//                                           lastVoteDate,
+//                                           electionCandidateMemberId,
+//                                           voteReason,
+//                                           lastAppliedOpTime,
+//                                           maxAppliedOpTime,
+//                                           priorityAtElection);
     }
     return Status::OK();
 }
@@ -4538,7 +4548,7 @@ EventHandle ReplicationCoordinatorImpl::_updateTerm_inlock(
     if (localUpdateTermResult == TopologyCoordinator::UpdateTermResult::kUpdatedTerm) {
         // When the node discovers a new term, the new term date metrics are now out-of-date, so we
         // clear them.
-        ReplicationMetrics::get(getServiceContext()).clearParticipantNewTermDates();
+//        ReplicationMetrics::get(getServiceContext()).clearParticipantNewTermDates();
 
         _termShadow.store(term);
         _cancelPriorityTakeover_inlock();
@@ -4557,7 +4567,7 @@ EventHandle ReplicationCoordinatorImpl::_updateTerm_inlock(
             LOGV2(21402,
                   "stepping down from primary, because a new term has begun: {term}",
                   "term"_attr = term);
-            ReplicationMetrics::get(getServiceContext()).incrementNumStepDownsCausedByHigherTerm();
+//            ReplicationMetrics::get(getServiceContext()).incrementNumStepDownsCausedByHigherTerm();
             return _stepDownStart();
         } else {
             LOGV2_DEBUG(21403,
@@ -4595,8 +4605,8 @@ void ReplicationCoordinatorImpl::createWMajorityWriteAvailabilityDateWaiter(OpTi
     auto setOpTimeCB = [this](Status status) {
         // Only setWMajorityWriteAvailabilityDate if the wait was successful.
         if (status.isOK()) {
-            ReplicationMetrics::get(getServiceContext())
-                .setWMajorityWriteAvailabilityDate(_replExecutor->now());
+//            ReplicationMetrics::get(getServiceContext())
+//                .setWMajorityWriteAvailabilityDate(_replExecutor->now());
         }
     };
 

@@ -800,6 +800,9 @@ TEST_F(ReplCoordReconfigTest,
     reconfigThread = stdx::thread(
         [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
 
+    // If you call a ReplCoord method inline in the unit test driver thread that schedules work onto
+    // the executor, when can you be sure that that scheduled work has been run by the executor?
+
     // Satisfy the quorum check.
     auto net = getNet();
     enterNetwork();

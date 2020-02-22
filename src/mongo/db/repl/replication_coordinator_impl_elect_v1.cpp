@@ -70,7 +70,7 @@ public:
 
         // Clear the node's election candidate metrics if it loses either the dry-run or actual
         // election, since it will not become primary.
-        ReplicationMetrics::get(getGlobalServiceContext()).clearElectionCandidateMetrics();
+//        ReplicationMetrics::get(getGlobalServiceContext()).clearElectionCandidateMetrics();
     }
 
     void dismiss() {
@@ -243,17 +243,17 @@ void ReplicationCoordinatorImpl::_startRealElection_inlock(long long newTerm,
         ? boost::none
         : boost::make_optional(_rsConfig.getMemberAt(priorPrimaryIndex).getId().getData());
 
-    ReplicationMetrics::get(getServiceContext())
-        .setElectionCandidateMetrics(reason,
-                                     now,
-                                     newTerm,
-                                     lastCommittedOpTime,
-                                     lastSeenOpTime,
-                                     numVotesNeeded,
-                                     priorityAtElection,
-                                     electionTimeoutMillis,
-                                     priorPrimaryMemberId);
-    ReplicationMetrics::get(getServiceContext()).incrementNumElectionsCalledForReason(reason);
+//    ReplicationMetrics::get(getServiceContext())
+//        .setElectionCandidateMetrics(reason,
+//                                     now,
+//                                     newTerm,
+//                                     lastCommittedOpTime,
+//                                     lastSeenOpTime,
+//                                     numVotesNeeded,
+//                                     priorityAtElection,
+//                                     electionTimeoutMillis,
+//                                     priorPrimaryMemberId);
+//    ReplicationMetrics::get(getServiceContext()).incrementNumElectionsCalledForReason(reason);
 
     LoseElectionDryRunGuardV1 lossGuard(this);
 
@@ -377,8 +377,8 @@ void ReplicationCoordinatorImpl::_onVoteRequestComplete(long long newTerm,
             LOGV2(21450,
                   "election succeeded, assuming primary role in term {topCoord_getTerm}",
                   "topCoord_getTerm"_attr = _topCoord->getTerm());
-            ReplicationMetrics::get(getServiceContext())
-                .incrementNumElectionsSuccessfulForReason(reason);
+//            ReplicationMetrics::get(getServiceContext())
+//                .incrementNumElectionsSuccessfulForReason(reason);
             break;
         case VoteRequester::Result::kPrimaryRespondedNo:
             // This is impossible because we would only require the primary's

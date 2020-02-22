@@ -117,24 +117,37 @@ void ReplCoordTest::addSelf(const HostAndPort& selfHost) {
 void ReplCoordTest::init() {
     invariant(!_repl);
     invariant(!_callShutdown);
+    const auto opCtx = makeOperationContext();
 
-    auto service = getGlobalServiceContext();
+//    auto service = getGlobalServiceContext();
+    auto service = nullptr;
     _storageInterface = new StorageInterfaceMock();
-    StorageInterface::set(service, std::unique_ptr<StorageInterface>(_storageInterface));
-    ASSERT_TRUE(_storageInterface == StorageInterface::get(service));
+//    StorageInterface::set(service, std::unique_ptr<StorageInterface>(_storageInterface));
+//    ASSERT_TRUE(_storageInterface == StorageInterface::get(service));
 
-    ReplicationProcess::set(
-        service,
-        std::make_unique<ReplicationProcess>(_storageInterface,
-                                             std::make_unique<ReplicationConsistencyMarkersMock>(),
-                                             std::make_unique<ReplicationRecoveryMock>()));
-    auto replicationProcess = ReplicationProcess::get(service);
+    unittest::log() << "### Setting replication process.";
+    auto replicationProcess = std::make_unique<ReplicationProcess>(_storageInterface,
+                                         std::make_unique<ReplicationConsistencyMarkersMock>(),
+                                         std::make_unique<ReplicationRecoveryMock>());
+    _replicationProcess = replicationProcess.get();
+    unittest::log() << "### replProcess: " << (_replicationProcess == 0);
+
+//    auto status = _replicationProcess->getConsistencyMarkers()->createInternalCollections(opCtx.get());
+//    ASSERT_OK(status);
+
+//    ReplicationProcess::set(
+//        service,
+//        std::make_unique<ReplicationProcess>(_storageInterface,
+//                                             std::make_unique<ReplicationConsistencyMarkersMock>(),
+//                                             std::make_unique<ReplicationRecoveryMock>()));
+//    auto replicationProcess = ReplicationProcess::get(service);
 
     // PRNG seed for tests.
     const int64_t seed = 0;
 
+    unittest::log() << "### Creating logical clock.";
     auto logicalClock = std::make_unique<LogicalClock>(service);
-    LogicalClock::set(service, std::move(logicalClock));
+//    LogicalClock::set(service, std::move(logicalClock));
 
     TopologyCoordinator::Options settings;
     auto topo = std::make_unique<TopologyCoordinator>(settings);
@@ -154,12 +167,12 @@ void ReplCoordTest::init() {
                                                          std::move(externalState),
                                                          std::move(replExec),
                                                          std::move(topo),
-                                                         replicationProcess,
+                                                         _replicationProcess,
                                                          _storageInterface,
                                                          seed);
-    service->setFastClockSource(std::make_unique<executor::NetworkInterfaceMockClockSource>(_net));
-    service->setPreciseClockSource(
-        std::make_unique<executor::NetworkInterfaceMockClockSource>(_net));
+//    service->setFastClockSource(std::make_unique<executor::NetworkInterfaceMockClockSource>(_net));
+//    service->setPreciseClockSource(
+//        std::make_unique<executor::NetworkInterfaceMockClockSource>(_net));
 }
 
 void ReplCoordTest::init(const ReplSettings& settings) {

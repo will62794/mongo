@@ -319,6 +319,7 @@ private:
     executor::TaskExecutor* _replExec = nullptr;
     // Owned by the ServiceContext
     StorageInterfaceMock* _storageInterface = nullptr;
+    ReplicationProcess* _replicationProcess = nullptr;
 
     ReplSettings _settings;
     bool _callShutdown = false;
