@@ -114,12 +114,27 @@ void ReplCoordTest::addSelf(const HostAndPort& selfHost) {
     getExternalState()->addSelf(selfHost);
 }
 
+// the necessary mock infrastructure to support an isolated ReplCoord instance.
+struct ReplCoordHarness{
+    // The mocks.
+    StorageInterfaceMock* _storageInterface;
+    ReplicationProcess* _replicationProcess;
+    TopologyCoordinator* _topoCoord;
+    executor::ThreadPoolTaskExecutor* _replExec;
+    ReplicationCoordinatorExternalStateMock _externalState;
+    NetworkInterfaceMock* _net;
+    // The actual ReplCoord.
+    ReplicationCoordinatorImpl _replCoord;
+};
+
 void ReplCoordTest::init() {
     invariant(!_repl);
     invariant(!_callShutdown);
     const auto opCtx = makeOperationContext();
 
 //    auto service = getGlobalServiceContext();
+    // Eventually we might really want to create a ServiceContextMock to support some basic
+    // functionality and to hang things off of.
     auto service = nullptr;
     _storageInterface = new StorageInterfaceMock();
 //    StorageInterface::set(service, std::unique_ptr<StorageInterface>(_storageInterface));
