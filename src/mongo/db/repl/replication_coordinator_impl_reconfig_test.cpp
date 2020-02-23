@@ -874,52 +874,84 @@ TEST_F(ReplCoordReconfigTest,
     ASSERT_OK(status);
 }
 
-TEST_F(ReplCoordReconfigTest,
-       DummyTest) {
+TEST_F(ReplCoordReconfigTest, DummyTest) {
     // Start out in config version 2 to simulate case where a node that already has a non-initial
     // config.
     init();
     auto configVersion = 2;
-    assertStartSuccess(
-            configWithMembers(configVersion, BSON_ARRAY(member(1, "node1:12345") << member(2, "node2:12345"))),
-            HostAndPort("node1", 12345));
+    auto configDoc = BSON("_id"
+                          << "mySet"
+                          << "protocolVersion" << 1 << "version" << 2 << "members"
+                          << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                   << "node1:12345")
+                                        << BSON("_id" << 2 << "host"
+                                                      << "node2:12345"
+                                                      << "priority" << 0)));
+    assertStartSuccess(configDoc, HostAndPort("node1", 12345));
     ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
 
-    // Simulate application of one oplog entry.
-    replCoordSetMyLastAppliedAndDurableOpTime(OpTime(Timestamp(20, 1), 0));
+    // Simulate application/replication of one oplog entry.
+    auto opTime = OpTime(Timestamp(20, 1), 0);
+    replCoordSetMyLastAppliedAndDurableOpTime(opTime);
+    getReplCoord2()->setMyLastAppliedOpTimeAndWallTime({opTime, Date_t() + Seconds(1)});
+    getReplCoord2()->setMyLastDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(1)});
 
-    getReplCoord2()->setMyLastAppliedOpTimeAndWallTime({OpTime(Timestamp(20, 1), 0), Date_t() + Seconds(1)});
-    getReplCoord2()->setMyLastDurableOpTimeAndWallTime({OpTime(Timestamp(20, 1), 0), Date_t() + Seconds(1)});
-    getNet()->enterNetwork();
-    NetworkInterfaceMock::NetworkOperationIterator noi = getNet()->getNextReadyRequest();
-    auto req = noi->getRequest();
-    ReplSetHeartbeatArgsV1 hbArgs;
-    Status status = hbArgs.initialize(req.cmdObj);
-    if(status.isOK()){
-        // We have a heartbeat request.
-        ReplSetHeartbeatResponse res;
-        auto hst = getReplCoord2()->processHeartbeatV1(hbArgs, &res);
-        ASSERT_OK(hst);
-        // TODO: schedule the response back.
-        unittest::log() << "### Repl 2 handled heartbeat with response: " << res.toBSON();
-        BSONObjBuilder respObj;
-        res.addToBSON(&respObj);
-        getNet()->scheduleResponse(noi, getNet()->now(), makeResponseStatus(respObj.obj()));
+    auto electionTime = getReplCoord()->getElectionTimeout_forTest();
+    unittest::log() << "### Trying to simulate election at: " << electionTime;
+    bool hasReadyRequests = true;
+
+    while (!getReplCoord()->getMemberState().primary() || hasReadyRequests) {
+        getNet()->enterNetwork();
+        unittest::log() << "### Trying to run clock forwards to: " << electionTime
+                        << ", now: " << getNet()->now();
+
+        if (getNet()->now() < electionTime) {
+            getNet()->runUntil(electionTime);
+        }
+
+        //
+        // Simulate an election sequence between two nodes.
+        //
+        unittest::log() << "### Getting another request.";
+        NetworkInterfaceMock::NetworkOperationIterator noi = getNet()->getNextReadyRequest();
+        auto req = noi->getRequest();
+        unittest::log() << "### Got request: " << req.cmdObj;
+        ReplSetHeartbeatArgsV1 hbArgs;
+        Status status = hbArgs.initialize(req.cmdObj);
+        if (status.isOK()) {
+            unittest::log() << "### Responding to heartbeat.";
+            // We have a heartbeat request.
+            ReplSetHeartbeatResponse res;
+            auto hst = getReplCoord2()->processHeartbeatV1(hbArgs, &res);
+            ASSERT_OK(hst);
+            BSONObjBuilder respObj;
+            res.addToBSON(&respObj);
+            getNet()->scheduleResponse(noi, getNet()->now(), makeResponseStatus(respObj.obj()));
+            getNet()->runReadyNetworkOperations();
+        } else if (req.cmdObj.firstElement().fieldNameStringData() == "replSetRequestVotes") {
+            unittest::log() << "### Responding to voteRequest.";
+            // We have a vote request.
+            ReplSetRequestVotesArgs args;
+            ASSERT_OK(args.initialize(req.cmdObj));
+            ReplSetRequestVotesResponse res;
+            auto opCtx = makeOperationContext();
+            auto hst = getReplCoord2()->processReplSetRequestVotes(opCtx.get(), args, &res);
+            BSONObjBuilder respObj;
+            res.addToBSON(&respObj);
+            respObj.append("ok", 1);
+            getNet()->scheduleResponse(noi, getNet()->now(), makeResponseStatus(respObj.obj()));
+        } else {
+            getNet()->blackHole(noi);
+        }
         getNet()->runReadyNetworkOperations();
+        hasReadyRequests = getNet()->hasReadyRequests();
+        getNet()->exitNetwork();
     }
-    getNet()->exitNetwork();
 
-
-
-    // Get elected primary.
-//    simulateSuccessfulV1Election();
-//    ASSERT_EQ(getReplCoord()->getMemberState(), MemberState::RS_PRIMARY);
-//    ASSERT_EQ(getReplCoord()->getTerm(), 1);
-
-
-
-
-
+    auto opCtx = makeOperationContext();
+    opCtx->setShouldParticipateInFlowControl(false);
+    getExternalState()->setFirstOpTimeOfMyTerm(OpTime(Timestamp(30, 1), getReplCoord()->getTerm()));
+    getReplCoord()->signalDrainComplete(opCtx.get(), getReplCoord()->getTerm());
 }
 
 }  // anonymous namespace

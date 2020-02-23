@@ -254,7 +254,7 @@ void ReplCoordTest::init() {
                                   << BSON_ARRAY(BSON("_id" << 1 << "host"
                                                            << "node1:12345")
                                                         << BSON("_id" << 2 << "host"
-                                                                      << "node2:12345")));
+                                                                      << "node2:12345"<< "priority" << 0)));
     _externalState2->setLocalConfigDocument(StatusWith<BSONObj>(configDoc));
     _externalState2->addSelf(HostAndPort("node2", 12345));
     unittest::log() << "### Set local config doc in second repl coord.";
