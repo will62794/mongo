@@ -874,6 +874,26 @@ TEST_F(ReplCoordReconfigTest,
     ASSERT_OK(status);
 }
 
+TEST_F(ReplCoordReconfigTest,
+       DummyTest) {
+    // Start out in config version 2 to simulate case where a node that already has a non-initial
+    // config.
+    init();
+    auto configVersion = 2;
+    assertStartSuccess(
+            configWithMembers(configVersion, BSON_ARRAY(member(1, "node1:12345") << member(2, "node2:12345"))),
+            HostAndPort("node1", 12345));
+    ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
+
+    // Simulate application of one oplog entry.
+    replCoordSetMyLastAppliedAndDurableOpTime(OpTime(Timestamp(1, 1), 0));
+
+    // Get elected primary.
+    simulateSuccessfulV1Election();
+    ASSERT_EQ(getReplCoord()->getMemberState(), MemberState::RS_PRIMARY);
+    ASSERT_EQ(getReplCoord()->getTerm(), 1);
+}
+
 }  // anonymous namespace
 }  // namespace repl
 }  // namespace mongo

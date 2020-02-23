@@ -187,6 +187,84 @@ void ReplCoordTest::init() {
 //    service->setFastClockSource(std::make_unique<executor::NetworkInterfaceMockClockSource>(_net));
 //    service->setPreciseClockSource(
 //        std::make_unique<executor::NetworkInterfaceMockClockSource>(_net));
+
+
+//////////////////
+// Make second repl coord.
+////
+
+
+//    auto service = getGlobalServiceContext();
+    // Eventually we might really want to create a ServiceContextMock to support some basic
+    // functionality and to hang things off of.
+    _storageInterface2 = new StorageInterfaceMock();
+//    StorageInterface::set(service, std::unique_ptr<StorageInterface>(_storageInterface));
+//    ASSERT_TRUE(_storageInterface == StorageInterface::get(service));
+
+    unittest::log() << "### Setting replication process.";
+    _replicationProcess2 = new ReplicationProcess(_storageInterface2,
+                                                 std::make_unique<ReplicationConsistencyMarkersMock>(),
+                                                 std::make_unique<ReplicationRecoveryMock>());
+    unittest::log() << "### replProcess: " << (_replicationProcess2 == 0);
+
+//    auto status = _replicationProcess->getConsistencyMarkers()->createInternalCollections(opCtx.get());
+//    ASSERT_OK(status);
+
+//    ReplicationProcess::set(
+//        service,
+//        std::make_unique<ReplicationProcess>(_storageInterface,
+//                                             std::make_unique<ReplicationConsistencyMarkersMock>(),
+//                                             std::make_unique<ReplicationRecoveryMock>()));
+//    auto replicationProcess = ReplicationProcess::get(service);
+
+    // PRNG seed for tests.
+
+    unittest::log() << "### Creating logical clock.";
+//    auto logicalClock = std::make_unique<LogicalClock>(service);
+//    LogicalClock::set(service, std::move(logicalClock));
+
+    TopologyCoordinator::Options settings2;
+    auto topo2 = std::make_unique<TopologyCoordinator>(settings2);
+    _topo2 = topo.get();
+    auto net2 = std::make_unique<NetworkInterfaceMock>();
+    _net2 = net2.get();
+    auto externalState2 = std::make_unique<ReplicationCoordinatorExternalStateMock>();
+    _externalState2 = externalState2.get();
+    executor::ThreadPoolMock::Options tpOptions2;
+    tpOptions2.onCreateThread = []() { Client::initThread("replexec2"); };
+    auto pool2 = std::make_unique<executor::ThreadPoolMock>(_net2, seed, tpOptions2);
+    auto replExec2 =
+            std::make_unique<executor::ThreadPoolTaskExecutor>(std::move(pool2), std::move(net2));
+    _replExec2 = replExec2.get();
+    _repl2 = std::make_unique<ReplicationCoordinatorImpl>(service,
+                                                         _settings,
+                                                         std::move(externalState2),
+                                                         std::move(replExec2),
+                                                         std::move(topo2),
+                                                         _replicationProcess2,
+                                                         _storageInterface2,
+                                                         seed);
+
+
+
+    auto configDoc = BSON("_id"
+                                  << "mySet"
+                                  << "protocolVersion" << 1
+                                  << "version" << 2 << "members"
+                                  << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                           << "node1:12345")
+                                                        << BSON("_id" << 2 << "host"
+                                                                      << "node2:12345")));
+    _externalState2->setLocalConfigDocument(StatusWith<BSONObj>(configDoc));
+    _externalState2->addSelf(HostAndPort("node2", 12345));
+    unittest::log() << "### Set local config doc in second repl coord.";
+
+    unittest::log() << "### Starting up second replication coordinator.";
+    // Start up the second replication coordinator.
+    _repl2->startup(opCtx.get());
+    _repl2->waitForStartUpComplete_forTest();
+    unittest::log() << "### Finished starting up second repl coord.";
+
 }
 
 void ReplCoordTest::init(const ReplSettings& settings) {

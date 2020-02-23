@@ -321,6 +321,22 @@ private:
     StorageInterfaceMock* _storageInterface = nullptr;
     ReplicationProcess* _replicationProcess = nullptr;
 
+    //
+    // Second repl coord.
+    //
+    std::unique_ptr<ReplicationCoordinatorImpl> _repl2;
+    // Owned by ReplicationCoordinatorImpl
+    TopologyCoordinator* _topo2 = nullptr;
+    // Owned by executor
+    executor::NetworkInterfaceMock* _net2 = nullptr;
+    // Owned by ReplicationCoordinatorImpl
+    ReplicationCoordinatorExternalStateMock* _externalState2 = nullptr;
+    // Owned by ReplicationCoordinatorImpl
+    executor::TaskExecutor* _replExec2 = nullptr;
+    // Owned by the ServiceContext
+    StorageInterfaceMock* _storageInterface2 = nullptr;
+    ReplicationProcess* _replicationProcess2 = nullptr;
+
     ReplSettings _settings;
     bool _callShutdown = false;
 };
