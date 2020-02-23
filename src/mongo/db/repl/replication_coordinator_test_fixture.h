@@ -93,6 +93,10 @@ protected:
         return _net;
     }
 
+    executor::NetworkInterfaceMock* getNet2() {
+        return _net2;
+    }
+
     /**
      * Gets the replication executor under test.
      */
@@ -103,6 +107,9 @@ protected:
      */
     ReplicationCoordinatorImpl* getReplCoord() {
         return _repl.get();
+    }
+    ReplicationCoordinatorImpl* getReplCoord2() {
+        return _repl2.get();
     }
 
     void replCoordSetMyLastAppliedOpTime(const OpTime& opTime, Date_t wallTime = Date_t()) {

@@ -886,12 +886,40 @@ TEST_F(ReplCoordReconfigTest,
     ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
 
     // Simulate application of one oplog entry.
-    replCoordSetMyLastAppliedAndDurableOpTime(OpTime(Timestamp(1, 1), 0));
+    replCoordSetMyLastAppliedAndDurableOpTime(OpTime(Timestamp(20, 1), 0));
+
+    getReplCoord2()->setMyLastAppliedOpTimeAndWallTime({OpTime(Timestamp(20, 1), 0), Date_t() + Seconds(1)});
+    getReplCoord2()->setMyLastDurableOpTimeAndWallTime({OpTime(Timestamp(20, 1), 0), Date_t() + Seconds(1)});
+    getNet()->enterNetwork();
+    NetworkInterfaceMock::NetworkOperationIterator noi = getNet()->getNextReadyRequest();
+    auto req = noi->getRequest();
+    ReplSetHeartbeatArgsV1 hbArgs;
+    Status status = hbArgs.initialize(req.cmdObj);
+    if(status.isOK()){
+        // We have a heartbeat request.
+        ReplSetHeartbeatResponse res;
+        auto hst = getReplCoord2()->processHeartbeatV1(hbArgs, &res);
+        ASSERT_OK(hst);
+        // TODO: schedule the response back.
+        unittest::log() << "### Repl 2 handled heartbeat with response: " << res.toBSON();
+        BSONObjBuilder respObj;
+        res.addToBSON(&respObj);
+        getNet()->scheduleResponse(noi, getNet()->now(), makeResponseStatus(respObj.obj()));
+        getNet()->runReadyNetworkOperations();
+    }
+    getNet()->exitNetwork();
+
+
 
     // Get elected primary.
-    simulateSuccessfulV1Election();
-    ASSERT_EQ(getReplCoord()->getMemberState(), MemberState::RS_PRIMARY);
-    ASSERT_EQ(getReplCoord()->getTerm(), 1);
+//    simulateSuccessfulV1Election();
+//    ASSERT_EQ(getReplCoord()->getMemberState(), MemberState::RS_PRIMARY);
+//    ASSERT_EQ(getReplCoord()->getTerm(), 1);
+
+
+
+
+
 }
 
 }  // anonymous namespace
