@@ -886,6 +886,9 @@ TEST_F(ReplCoordReconfigTest, DummyTest) {
                                                    << "node1:12345")
                                         << BSON("_id" << 2 << "host"
                                                       << "node2:12345"
+                                                      << "priority" << 0)
+                                        << BSON("_id" << 3 << "host"
+                                                      << "node3:12345"
                                                       << "priority" << 0)));
     assertStartSuccess(configDoc, HostAndPort("node1", 12345));
     ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
@@ -915,14 +918,21 @@ TEST_F(ReplCoordReconfigTest, DummyTest) {
         unittest::log() << "### Getting another request.";
         NetworkInterfaceMock::NetworkOperationIterator noi = getNet()->getNextReadyRequest();
         auto req = noi->getRequest();
-        unittest::log() << "### Got request: " << req.cmdObj;
+        unittest::log() << "### Got request: " << req.cmdObj << ", target: " << req.target;
+        // Route to the right recipient.
+        ReplicationCoordinatorImpl* targetReplCoord;
+        if(req.target.host() == "node2"){
+            targetReplCoord = getReplCoord2();
+        } else if(req.target.host() == "node3"){
+            targetReplCoord = getReplCoord3();
+        }
         ReplSetHeartbeatArgsV1 hbArgs;
         Status status = hbArgs.initialize(req.cmdObj);
         if (status.isOK()) {
             unittest::log() << "### Responding to heartbeat.";
             // We have a heartbeat request.
             ReplSetHeartbeatResponse res;
-            auto hst = getReplCoord2()->processHeartbeatV1(hbArgs, &res);
+            auto hst = targetReplCoord->processHeartbeatV1(hbArgs, &res);
             ASSERT_OK(hst);
             BSONObjBuilder respObj;
             res.addToBSON(&respObj);
@@ -935,7 +945,7 @@ TEST_F(ReplCoordReconfigTest, DummyTest) {
             ASSERT_OK(args.initialize(req.cmdObj));
             ReplSetRequestVotesResponse res;
             auto opCtx = makeOperationContext();
-            auto hst = getReplCoord2()->processReplSetRequestVotes(opCtx.get(), args, &res);
+            auto hst = targetReplCoord->processReplSetRequestVotes(opCtx.get(), args, &res);
             BSONObjBuilder respObj;
             res.addToBSON(&respObj);
             respObj.append("ok", 1);

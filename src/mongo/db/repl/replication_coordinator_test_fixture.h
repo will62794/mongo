@@ -97,6 +97,10 @@ protected:
         return _net2;
     }
 
+    executor::NetworkInterfaceMock* getNet3() {
+        return _net3;
+    }
+
     /**
      * Gets the replication executor under test.
      */
@@ -110,6 +114,9 @@ protected:
     }
     ReplicationCoordinatorImpl* getReplCoord2() {
         return _repl2.get();
+    }
+    ReplicationCoordinatorImpl* getReplCoord3() {
+        return _repl3.get();
     }
 
     void replCoordSetMyLastAppliedOpTime(const OpTime& opTime, Date_t wallTime = Date_t()) {
@@ -343,6 +350,22 @@ private:
     // Owned by the ServiceContext
     StorageInterfaceMock* _storageInterface2 = nullptr;
     ReplicationProcess* _replicationProcess2 = nullptr;
+
+    //
+    // Third repl coord.
+    //
+    std::unique_ptr<ReplicationCoordinatorImpl> _repl3;
+    // Owned by ReplicationCoordinatorImpl
+    TopologyCoordinator* _topo3 = nullptr;
+    // Owned by executor
+    executor::NetworkInterfaceMock* _net3 = nullptr;
+    // Owned by ReplicationCoordinatorImpl
+    ReplicationCoordinatorExternalStateMock* _externalState3 = nullptr;
+    // Owned by ReplicationCoordinatorImpl
+    executor::TaskExecutor* _replExec3 = nullptr;
+    // Owned by the ServiceContext
+    StorageInterfaceMock* _storageInterface3 = nullptr;
+    ReplicationProcess* _replicationProcess3 = nullptr;
 
     ReplSettings _settings;
     bool _callShutdown = false;

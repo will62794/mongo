@@ -254,7 +254,8 @@ void ReplCoordTest::init() {
                                   << BSON_ARRAY(BSON("_id" << 1 << "host"
                                                            << "node1:12345")
                                                         << BSON("_id" << 2 << "host"
-                                                                      << "node2:12345"<< "priority" << 0)));
+                                                                      << "node2:12345"<< "priority" << 0)<< BSON("_id" << 3 << "host"
+                                                                                                                       << "node3:12345"<< "priority" << 0)));
     _externalState2->setLocalConfigDocument(StatusWith<BSONObj>(configDoc));
     _externalState2->addSelf(HostAndPort("node2", 12345));
     unittest::log() << "### Set local config doc in second repl coord.";
@@ -264,6 +265,82 @@ void ReplCoordTest::init() {
     _repl2->startup(opCtx.get());
     _repl2->waitForStartUpComplete_forTest();
     unittest::log() << "### Finished starting up second repl coord.";
+
+//////////////////
+// Make third repl coord.
+////
+
+//    auto service = getGlobalServiceContext();
+    // Eventually we might really want to create a ServiceContextMock to support some basic
+    // functionality and to hang things off of.
+    _storageInterface3 = new StorageInterfaceMock();
+//    StorageInterface::set(service, std::unique_ptr<StorageInterface>(_storageInterface));
+//    ASSERT_TRUE(_storageInterface == StorageInterface::get(service));
+
+    unittest::log() << "### Setting replication process.";
+    _replicationProcess3 = new ReplicationProcess(_storageInterface3,
+                                                  std::make_unique<ReplicationConsistencyMarkersMock>(),
+                                                  std::make_unique<ReplicationRecoveryMock>());
+    unittest::log() << "### replProcess: " << (_replicationProcess3 == 0);
+
+//    auto status = _replicationProcess->getConsistencyMarkers()->createInternalCollections(opCtx.get());
+//    ASSERT_OK(status);
+
+//    ReplicationProcess::set(
+//        service,
+//        std::make_unique<ReplicationProcess>(_storageInterface,
+//                                             std::make_unique<ReplicationConsistencyMarkersMock>(),
+//                                             std::make_unique<ReplicationRecoveryMock>()));
+//    auto replicationProcess = ReplicationProcess::get(service);
+
+    // PRNG seed for tests.
+
+    unittest::log() << "### Creating logical clock.";
+//    auto logicalClock = std::make_unique<LogicalClock>(service);
+//    LogicalClock::set(service, std::move(logicalClock));
+
+    TopologyCoordinator::Options settings3;
+    auto topo3 = std::make_unique<TopologyCoordinator>(settings3);
+    _topo3 = topo.get();
+    auto net3 = std::make_unique<NetworkInterfaceMock>();
+    _net3 = net3.get();
+    auto externalState3 = std::make_unique<ReplicationCoordinatorExternalStateMock>();
+    _externalState3 = externalState3.get();
+    executor::ThreadPoolMock::Options tpOptions3;
+    tpOptions3.onCreateThread = []() { Client::initThread("replexec3"); };
+    auto pool3 = std::make_unique<executor::ThreadPoolMock>(_net3, seed, tpOptions3);
+    auto replExec3 =
+            std::make_unique<executor::ThreadPoolTaskExecutor>(std::move(pool3), std::move(net3));
+    _replExec3 = replExec3.get();
+    _repl3 = std::make_unique<ReplicationCoordinatorImpl>(service,
+                                                          _settings,
+                                                          std::move(externalState3),
+                                                          std::move(replExec3),
+                                                          std::move(topo3),
+                                                          _replicationProcess3,
+                                                          _storageInterface3,
+                                                          seed);
+
+
+
+//    auto configDoc = BSON("_id"
+//                                  << "mySet"
+//                                  << "protocolVersion" << 1
+//                                  << "version" << 2 << "members"
+//                                  << BSON_ARRAY(BSON("_id" << 1 << "host"
+//                                                           << "node1:12345")
+//                                                        << BSON("_id" << 2 << "host"
+//                                                                      << "node2:12345"<< "priority" << 0) << BSON("_id" << 3 << "host"
+//                                                                                                                        << "node3:12345"<< "priority" << 0)));
+    _externalState3->setLocalConfigDocument(StatusWith<BSONObj>(configDoc));
+    _externalState3->addSelf(HostAndPort("node3", 12345));
+    unittest::log() << "### Set local config doc in third repl coord.";
+
+    unittest::log() << "### Starting up third replication coordinator.";
+    // Start up the second replication coordinator.
+    _repl3->startup(opCtx.get());
+    _repl3->waitForStartUpComplete_forTest();
+    unittest::log() << "### Finished starting up third repl coord.";
 
 }
 
