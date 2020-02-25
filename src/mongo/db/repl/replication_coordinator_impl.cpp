@@ -2966,12 +2966,12 @@ Status ReplicationCoordinatorImpl::processReplSetReconfig(OperationContext* opCt
           "newConfig_getNumMembers"_attr = newConfig.getNumMembers());
 
     if (!args.force) {
-        status = checkQuorumForReconfig(
-            _replExecutor.get(), newConfig, myIndex.getValue(), _topCoord->getTerm());
-        if (!status.isOK()) {
-            LOGV2_ERROR(21421, "replSetReconfig failed; {status}", "status"_attr = status);
-            return status;
-        }
+//        status = checkQuorumForReconfig(
+//            _replExecutor.get(), newConfig, myIndex.getValue(), _topCoord->getTerm());
+//        if (!status.isOK()) {
+//            LOGV2_ERROR(21421, "replSetReconfig failed; {status}", "status"_attr = status);
+//            return status;
+//        }
     }
 
     // Make sure that the latest committed optime from the previous config is committed in the
@@ -2990,16 +2990,16 @@ Status ReplicationCoordinatorImpl::processReplSetReconfig(OperationContext* opCt
                             WriteConcernOptions::SyncMode::NONE,
                             WriteConcernOptions::kNoWaiting));
 
-    if (enforceCheck && !_doneWaitingForReplication_inlock(lastCommittedInPrevConfig, wcOpts)) {
-        LOGV2(51816,
-              "Oplog config commitment condition failed to be satisfied. The last committed optime "
-              "in the previous config ({}) is not committed in current config",
-              "lastCommittedInPrevConfig"_attr = lastCommittedInPrevConfig);
-        return Status(ErrorCodes::ConfigurationInProgress,
-                      str::stream() << "Last committed optime from previous config ("
-                                    << lastCommittedInPrevConfig.toString()
-                                    << ") is not committed in the current config.");
-    }
+//    if (enforceCheck && !_doneWaitingForReplication_inlock(lastCommittedInPrevConfig, wcOpts)) {
+//        LOGV2(51816,
+//              "Oplog config commitment condition failed to be satisfied. The last committed optime "
+//              "in the previous config ({}) is not committed in current config",
+//              "lastCommittedInPrevConfig"_attr = lastCommittedInPrevConfig);
+//        return Status(ErrorCodes::ConfigurationInProgress,
+//                      str::stream() << "Last committed optime from previous config ("
+//                                    << lastCommittedInPrevConfig.toString()
+//                                    << ") is not committed in the current config.");
+//    }
 
     LOGV2(51814, "Persisting new config to disk.");
     status = _externalState->storeLocalConfigDocument(opCtx, newConfig.toBSON());
@@ -3110,17 +3110,17 @@ void ReplicationCoordinatorImpl::_finishReplSetReconfig(OperationContext* opCtx,
     if (!isForceReconfig &&
         serverGlobalParams.featureCompatibility.isVersion(
             ServerGlobalParams::FeatureCompatibility::Version::kFullyUpgradedTo44)) {
-        LOGV2(51815,
-              "Waiting for the last committed optime in the previous config ({}) to be "
-              "committed in the current config.",
-              "lastCommittedInPrevConfig"_attr = lastCommittedInPrevConfig);
-        auto statusDur = awaitReplication(opCtx, lastCommittedInPrevConfig, wcOpts);
-        if (!statusDur.status.isOK()) {
-            uasserted(ErrorCodes::ConfigurationInProgress,
-                      str::stream() << "Last committed optime in the previous config ("
-                                    << lastCommittedInPrevConfig.toString()
-                                    << ") did not become committed in the current config.");
-        }
+//        LOGV2(51815,
+//              "Waiting for the last committed optime in the previous config ({}) to be "
+//              "committed in the current config.",
+//              "lastCommittedInPrevConfig"_attr = lastCommittedInPrevConfig);
+//        auto statusDur = awaitReplication(opCtx, lastCommittedInPrevConfig, wcOpts);
+//        if (!statusDur.status.isOK()) {
+//            uasserted(ErrorCodes::ConfigurationInProgress,
+//                      str::stream() << "Last committed optime in the previous config ("
+//                                    << lastCommittedInPrevConfig.toString()
+//                                    << ") did not become committed in the current config.");
+//        }
     }
 }
 

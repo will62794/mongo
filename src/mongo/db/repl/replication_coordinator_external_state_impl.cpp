@@ -503,7 +503,7 @@ OpTime ReplicationCoordinatorExternalStateImpl::onTransitionToPrimary(OperationC
 
     _dropAllTempCollections(opCtx);
 
-    IndexBuildsCoordinator::get(opCtx)->onStepUp(opCtx);
+//    IndexBuildsCoordinator::get(opCtx)->onStepUp(opCtx);
 
     notifyFreeMonitoringOnTransitionToPrimary();
 

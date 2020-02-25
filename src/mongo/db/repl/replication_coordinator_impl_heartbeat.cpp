@@ -404,8 +404,8 @@ void ReplicationCoordinatorImpl::_stepDownFinish(
     // kill all write operations which are no longer safe to run on step down. Also, operations that
     // have taken global lock in S mode and operations blocked on prepare conflict will be killed to
     // avoid 3-way deadlock between read, prepared transaction and step down thread.
-    AutoGetRstlForStepUpStepDown arsd(
-        this, opCtx.get(), ReplicationCoordinator::OpsKillingStateTransitionEnum::kStepDown);
+//    AutoGetRstlForStepUpStepDown arsd(
+//        this, opCtx.get(), ReplicationCoordinator::OpsKillingStateTransitionEnum::kStepDown);
     stdx::unique_lock<Latch> lk(_mutex);
 
     // This node has already stepped down due to reconfig. So, signal anyone who is waiting on the
@@ -419,12 +419,12 @@ void ReplicationCoordinatorImpl::_stepDownFinish(
     // check out sessions, to avoid deadlocks with checked-out sessions accessing this mutex.
     lk.unlock();
 
-    yieldLocksForPreparedTransactions(opCtx.get());
+//    yieldLocksForPreparedTransactions(opCtx.get());
 
     lk.lock();
 
     // Clear the node's election candidate metrics since it is no longer primary.
-    ReplicationMetrics::get(opCtx.get()).clearElectionCandidateMetrics();
+//    ReplicationMetrics::get(opCtx.get()).clearElectionCandidateMetrics();
 
     _topCoord->finishUnconditionalStepDown();
     const auto action = _updateMemberStateFromTopologyCoordinator(lk, opCtx.get());
@@ -707,7 +707,7 @@ void ReplicationCoordinatorImpl::_heartbeatReconfigFinish(
     _performPostMemberStateUpdateAction(action);
 
     // Inform the index builds coordinator of the replica set reconfig.
-    IndexBuildsCoordinator::get(opCtx.get())->onReplicaSetReconfig();
+//    IndexBuildsCoordinator::get(opCtx.get())->onReplicaSetReconfig();
 }
 
 void ReplicationCoordinatorImpl::_trackHeartbeatHandle_inlock(

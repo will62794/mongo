@@ -358,10 +358,10 @@ StatusWith<int> validateConfigForReconfig(ReplicationCoordinatorExternalState* e
     // For non-force reconfigs, verify that the reconfig only adds or removes a single node. This
     // ensures that all quorums of the new config overlap with all quorums of the old config.
     if (!force) {
-        status = validateSingleNodeChange(oldConfig, newConfig);
-        if (!status.isOK()) {
-            return StatusWith<int>(status);
-        }
+//        status = validateSingleNodeChange(oldConfig, newConfig);
+//        if (!status.isOK()) {
+//            return StatusWith<int>(status);
+//        }
     }
 
     status = validateArbiterPriorities(newConfig);

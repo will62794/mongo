@@ -900,10 +900,15 @@ public:
             // We have a heartbeat request.
             ReplSetHeartbeatResponse res;
             auto hst = targetReplCoord->processHeartbeatV1(hbArgs, &res);
-            ASSERT_OK(hst);
+            //            ASSERT_OK(hst);
             BSONObjBuilder respObj;
             res.addToBSON(&respObj);
-            net->scheduleResponse(noi, net->now(), makeResponseStatus(respObj.obj()));
+            if(rand() % 4 == 0){
+                // Randomly drop some heartbeats.
+                net->blackHole(noi);
+            }else{
+                net->scheduleResponse(noi, net->now(), makeResponseStatus(respObj.obj()));
+            }
             net->runReadyNetworkOperations();
         }
         // Handle 'replSetRequestVotes'.
@@ -951,7 +956,6 @@ public:
 
         for (auto el : subset) {
             unsigned ind = el - 1;
-            unittest::log() << "### ind: " << ind;
             bab.append(BSON("_id" << el << "host" << hosts.at(ind)));
         }
 
@@ -963,6 +967,10 @@ public:
 TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     // Start out in config version 2 to simulate case where a node that already has a non-initial
     // config.
+    auto seed = curTimeMillis64();
+//    srand(seed);
+    srand(1582607567481);
+    unittest::log() << "### test seed: " << seed;
     init();
     auto configVersion = 2;
     auto configDoc = BSON("_id"
@@ -986,19 +994,20 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     getReplCoord2()->setMyLastDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(1)});
 
     auto electionTime = getReplCoord()->getElectionTimeout_forTest();
-    electionTime = electionTime + Seconds(100); // run for 100 seconds of virtual time.
+    electionTime = electionTime + Seconds(600*10);  // run for 10 mins of virtual time.
     unittest::log() << "### Trying to simulate election at: " << electionTime;
     bool hasReadyRequests = true;
 
     //
     // Message handling loop.
     //
-    std::vector<ReplicationCoordinatorImpl*> replCoords = {getReplCoord(), getReplCoord2(), getReplCoord3()};
+    std::vector<ReplicationCoordinatorImpl*> replCoords = {
+        getReplCoord(), getReplCoord2(), getReplCoord3()};
     auto net = getNet();
     auto net2 = getNet2();
     auto net3 = getNet3();
-    while (!getReplCoord()->getMemberState().primary() || hasReadyRequests) {
-//    while (net->now() < electionTime || hasReadyRequests) {
+    //    while (!getReplCoord()->getMemberState().primary() || hasReadyRequests) {
+    while (net->now() < electionTime || hasReadyRequests) {
         unittest::log() << "### Trying to run clock forwards to: " << electionTime
                         << ", now: " << getNet()->now();
 
@@ -1006,7 +1015,10 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
         if (net->now() < electionTime) {
             net->runUntil(electionTime);
         }
-        handleRequest(net);
+        while (net->hasReadyRequests()) {
+            handleRequest(net);
+        }
+//        handleRequest(net);
 
         // Let network2 handle its requests.
         net2->enterNetwork();
@@ -1027,9 +1039,9 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
         }
         unittest::log() << "### Running ready network operations for all nets.";
         // Run all ready network operations.
-        net3->runReadyNetworkOperations();
-        net2->runReadyNetworkOperations();
         net->runReadyNetworkOperations();
+        net2->runReadyNetworkOperations();
+        net3->runReadyNetworkOperations();
         hasReadyRequests = net->hasReadyRequests();
         net->exitNetwork();
         net2->exitNetwork();
@@ -1040,17 +1052,37 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
         if (choice == 0) {
             // Pick a random node.
             int node = rand() % 3 + 1;
-            ReplicationCoordinatorImpl* coord = replCoords[(node-1)];
-            BSONObjBuilder res;
-            ReplSetReconfigArgs args;
-            args.force = false;
-            auto configVersion = coord->getConfig().getConfigVersion();
-            args.newConfigObj = configWithMembers(configVersion+1, randomMembers(node));
-            auto tempCtx = makeOperationContext();
-            unittest::log() << "### Fixture running a reconfig against node: " << node;
-            auto st = coord->processReplSetReconfig(tempCtx.get(),args,&res);
-            unittest::log() << "### Fixture reconfig status: "<< st.toString() <<", response:" << res.obj();
-//            ASSERT_OK(st);
+            ReplicationCoordinatorImpl* coord = replCoords[(node - 1)];
+            for (int i = 0; i < replCoords.size(); i++) {
+                if (replCoords[i]->getMemberState().primary()) {
+                    coord = replCoords[i];
+                    node = i + 1;
+                }
+            }
+            if (coord->getMemberState().primary()) {
+                BSONObjBuilder res;
+                ReplSetReconfigArgs args;
+                args.force = false;
+                auto configVersion = coord->getConfig().getConfigVersion();
+                args.newConfigObj = configWithMembers(configVersion + 1, randomMembers(node));
+                auto tempCtx = makeOperationContext();
+                unittest::log() << "### Fixture running a reconfig against node: " << node;
+                auto st = coord->processReplSetReconfig(tempCtx.get(), args, &res);
+                unittest::log() << "### Fixture reconfig status: " << st.toString()
+                                << ", response:" << res.obj();
+            }
+        }
+
+        // Check invariants.
+        for (int i = 0; i < replCoords.size(); i++) {
+            for (int j = 0; j < replCoords.size(); j++) {
+                if (j != i) {
+                    auto twoPrimariesInSameTerm = replCoords[i]->getMemberState().primary() &&
+                        replCoords[j]->getMemberState().primary() &&
+                        (replCoords[i]->getTerm() == replCoords[j]->getTerm());
+                    ASSERT_FALSE(twoPrimariesInSameTerm);
+                }
+            }
         }
     }
 
@@ -1059,13 +1091,13 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     getExternalState()->setFirstOpTimeOfMyTerm(OpTime(Timestamp(30, 1), getReplCoord()->getTerm()));
     getReplCoord()->signalDrainComplete(opCtx.get(), getReplCoord()->getTerm());
 
-//    unittest::log() << "### Random members: " << randomMembers(1);
-//    unittest::log() << "### Random members: " << randomMembers(2);
-//    unittest::log() << "### Random members: " << randomMembers(3);
-//    unittest::log() << "### Random members: " << randomMembers(1);
-//    unittest::log() << "### Random members: " << randomMembers(1);
-//    unittest::log() << "### Random members: " << randomMembers(1);
-//    unittest::log() << "### Random members: " << randomMembers(1);
+    //    unittest::log() << "### Random members: " << randomMembers(1);
+    //    unittest::log() << "### Random members: " << randomMembers(2);
+    //    unittest::log() << "### Random members: " << randomMembers(3);
+    //    unittest::log() << "### Random members: " << randomMembers(1);
+    //    unittest::log() << "### Random members: " << randomMembers(1);
+    //    unittest::log() << "### Random members: " << randomMembers(1);
+    //    unittest::log() << "### Random members: " << randomMembers(1);
 }
 
 }  // anonymous namespace
