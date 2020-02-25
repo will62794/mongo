@@ -874,7 +874,60 @@ TEST_F(ReplCoordReconfigTest,
     ASSERT_OK(status);
 }
 
-TEST_F(ReplCoordReconfigTest, DummyTest) {
+class ReplCoordReconfigSimulationTest : public ReplCoordReconfigTest {
+public:
+    // Handle and respond to the next outgoing request from the given network interface.
+    void handleRequest(NetworkInterfaceMock* net){
+        NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
+        auto req = noi->getRequest();
+
+        unittest::log() << "### Handling request: " << req.cmdObj << ", target: " << req.target;
+
+        // Route to the right recipient.
+        ReplicationCoordinatorImpl* targetReplCoord;
+        if(req.target.host() == "node2"){
+            targetReplCoord = getReplCoord2();
+        } else if(req.target.host() == "node3"){
+            targetReplCoord = getReplCoord3();
+        }
+
+        // Handle 'replSetHeartbeat'.
+        ReplSetHeartbeatArgsV1 hbArgs;
+        Status status = hbArgs.initialize(req.cmdObj);
+        if (status.isOK()) {
+            unittest::log() << "### Responding to heartbeat.";
+            // We have a heartbeat request.
+            ReplSetHeartbeatResponse res;
+            auto hst = targetReplCoord->processHeartbeatV1(hbArgs, &res);
+            ASSERT_OK(hst);
+            BSONObjBuilder respObj;
+            res.addToBSON(&respObj);
+            net->scheduleResponse(noi, net->now(), makeResponseStatus(respObj.obj()));
+            net->runReadyNetworkOperations();
+        }
+        // Handle 'replSetRequestVotes'.
+        else if (req.cmdObj.firstElement().fieldNameStringData() == "replSetRequestVotes") {
+            unittest::log() << "### Responding to voteRequest.";
+            // We have a vote request.
+            ReplSetRequestVotesArgs args;
+            ASSERT_OK(args.initialize(req.cmdObj));
+            ReplSetRequestVotesResponse res;
+            auto opCtx = makeOperationContext();
+            auto hst = targetReplCoord->processReplSetRequestVotes(opCtx.get(), args, &res);
+            BSONObjBuilder respObj;
+            res.addToBSON(&respObj);
+            respObj.append("ok", 1);
+            net->scheduleResponse(noi, net->now(), makeResponseStatus(respObj.obj()));
+        } else {
+            net->blackHole(noi);
+        }
+    }
+
+
+};
+
+
+TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     // Start out in config version 2 to simulate case where a node that already has a non-initial
     // config.
     init();
@@ -903,6 +956,9 @@ TEST_F(ReplCoordReconfigTest, DummyTest) {
     unittest::log() << "### Trying to simulate election at: " << electionTime;
     bool hasReadyRequests = true;
 
+    //
+    // Message handling loop.
+    //
     while (!getReplCoord()->getMemberState().primary() || hasReadyRequests) {
         getNet()->enterNetwork();
         unittest::log() << "### Trying to run clock forwards to: " << electionTime
@@ -912,47 +968,8 @@ TEST_F(ReplCoordReconfigTest, DummyTest) {
             getNet()->runUntil(electionTime);
         }
 
-        //
-        // Simulate an election sequence between two nodes.
-        //
-        unittest::log() << "### Getting another request.";
-        NetworkInterfaceMock::NetworkOperationIterator noi = getNet()->getNextReadyRequest();
-        auto req = noi->getRequest();
-        unittest::log() << "### Got request: " << req.cmdObj << ", target: " << req.target;
-        // Route to the right recipient.
-        ReplicationCoordinatorImpl* targetReplCoord;
-        if(req.target.host() == "node2"){
-            targetReplCoord = getReplCoord2();
-        } else if(req.target.host() == "node3"){
-            targetReplCoord = getReplCoord3();
-        }
-        ReplSetHeartbeatArgsV1 hbArgs;
-        Status status = hbArgs.initialize(req.cmdObj);
-        if (status.isOK()) {
-            unittest::log() << "### Responding to heartbeat.";
-            // We have a heartbeat request.
-            ReplSetHeartbeatResponse res;
-            auto hst = targetReplCoord->processHeartbeatV1(hbArgs, &res);
-            ASSERT_OK(hst);
-            BSONObjBuilder respObj;
-            res.addToBSON(&respObj);
-            getNet()->scheduleResponse(noi, getNet()->now(), makeResponseStatus(respObj.obj()));
-            getNet()->runReadyNetworkOperations();
-        } else if (req.cmdObj.firstElement().fieldNameStringData() == "replSetRequestVotes") {
-            unittest::log() << "### Responding to voteRequest.";
-            // We have a vote request.
-            ReplSetRequestVotesArgs args;
-            ASSERT_OK(args.initialize(req.cmdObj));
-            ReplSetRequestVotesResponse res;
-            auto opCtx = makeOperationContext();
-            auto hst = targetReplCoord->processReplSetRequestVotes(opCtx.get(), args, &res);
-            BSONObjBuilder respObj;
-            res.addToBSON(&respObj);
-            respObj.append("ok", 1);
-            getNet()->scheduleResponse(noi, getNet()->now(), makeResponseStatus(respObj.obj()));
-        } else {
-            getNet()->blackHole(noi);
-        }
+        handleRequest(getNet());
+
         getNet()->runReadyNetworkOperations();
         hasReadyRequests = getNet()->hasReadyRequests();
         getNet()->exitNetwork();
