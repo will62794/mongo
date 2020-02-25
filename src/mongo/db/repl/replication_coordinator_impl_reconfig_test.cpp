@@ -923,6 +923,40 @@ public:
             net->blackHole(noi);
         }
     }
+
+    std::set<int> randomSubset() {
+        std::set<int> sub;
+        int N = rand() % 3 + 1;
+        for (int i = 0; i < N; i++) {
+            int k = rand() % 3 + 1;
+            sub.insert(k);
+        }
+        return sub;
+    }
+
+    // Return a config with a random set of members between 1 and n elements.
+    BSONArray randomMembers(int self) {
+        std::set<int> set = {1, 2, 3};
+        std::set<int> subset;
+        subset.insert(self);  // always include self.
+        std::vector<std::string> hosts = {"node1:12345", "node2:12345", "node3:12345"};
+        BSONArrayBuilder bab;
+        for (auto el : set) {
+            // Flip a coin to determine set inclusion.
+            int k = rand() % 2;
+            if (k == 0) {
+                subset.insert(el);
+            }
+        }
+
+        for (auto el : subset) {
+            unsigned ind = el - 1;
+            unittest::log() << "### ind: " << ind;
+            bab.append(BSON("_id" << el << "host" << hosts.at(ind)));
+        }
+
+        return bab.arr();
+    }
 };
 
 
@@ -938,10 +972,10 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
                                                    << "node1:12345")
                                         << BSON("_id" << 2 << "host"
                                                       << "node2:12345"
-                                                      << "priority" << 0)
+                                                      << "priority" << 1)
                                         << BSON("_id" << 3 << "host"
                                                       << "node3:12345"
-                                                      << "priority" << 0)));
+                                                      << "priority" << 1)));
     assertStartSuccess(configDoc, HostAndPort("node1", 12345));
     ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
 
@@ -952,16 +986,19 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     getReplCoord2()->setMyLastDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(1)});
 
     auto electionTime = getReplCoord()->getElectionTimeout_forTest();
+    electionTime = electionTime + Seconds(100); // run for 100 seconds of virtual time.
     unittest::log() << "### Trying to simulate election at: " << electionTime;
     bool hasReadyRequests = true;
 
     //
     // Message handling loop.
     //
+    std::vector<ReplicationCoordinatorImpl*> replCoords = {getReplCoord(), getReplCoord2(), getReplCoord3()};
     auto net = getNet();
     auto net2 = getNet2();
     auto net3 = getNet3();
     while (!getReplCoord()->getMemberState().primary() || hasReadyRequests) {
+//    while (net->now() < electionTime || hasReadyRequests) {
         unittest::log() << "### Trying to run clock forwards to: " << electionTime
                         << ", now: " << getNet()->now();
 
@@ -997,12 +1034,38 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
         net->exitNetwork();
         net2->exitNetwork();
         net3->exitNetwork();
+
+        // Randomly choose to execute a random reconfig.
+        int choice = rand() % 2;
+        if (choice == 0) {
+            // Pick a random node.
+            int node = rand() % 3 + 1;
+            ReplicationCoordinatorImpl* coord = replCoords[(node-1)];
+            BSONObjBuilder res;
+            ReplSetReconfigArgs args;
+            args.force = false;
+            auto configVersion = coord->getConfig().getConfigVersion();
+            args.newConfigObj = configWithMembers(configVersion+1, randomMembers(node));
+            auto tempCtx = makeOperationContext();
+            unittest::log() << "### Fixture running a reconfig against node: " << node;
+            auto st = coord->processReplSetReconfig(tempCtx.get(),args,&res);
+            unittest::log() << "### Fixture reconfig status: "<< st.toString() <<", response:" << res.obj();
+//            ASSERT_OK(st);
+        }
     }
 
     auto opCtx = makeOperationContext();
     opCtx->setShouldParticipateInFlowControl(false);
     getExternalState()->setFirstOpTimeOfMyTerm(OpTime(Timestamp(30, 1), getReplCoord()->getTerm()));
     getReplCoord()->signalDrainComplete(opCtx.get(), getReplCoord()->getTerm());
+
+//    unittest::log() << "### Random members: " << randomMembers(1);
+//    unittest::log() << "### Random members: " << randomMembers(2);
+//    unittest::log() << "### Random members: " << randomMembers(3);
+//    unittest::log() << "### Random members: " << randomMembers(1);
+//    unittest::log() << "### Random members: " << randomMembers(1);
+//    unittest::log() << "### Random members: " << randomMembers(1);
+//    unittest::log() << "### Random members: " << randomMembers(1);
 }
 
 }  // anonymous namespace
