@@ -877,17 +877,18 @@ TEST_F(ReplCoordReconfigTest,
 class ReplCoordReconfigSimulationTest : public ReplCoordReconfigTest {
 public:
     // Handle and respond to the next outgoing request from the given network interface.
-    void handleRequest(NetworkInterfaceMock* net){
+    void handleRequest(NetworkInterfaceMock* net) {
         NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
         auto req = noi->getRequest();
-
         unittest::log() << "### Handling request: " << req.cmdObj << ", target: " << req.target;
 
         // Route to the right recipient.
         ReplicationCoordinatorImpl* targetReplCoord;
-        if(req.target.host() == "node2"){
+        if (req.target.host() == "node1") {
+            targetReplCoord = getReplCoord();
+        } else if (req.target.host() == "node2") {
             targetReplCoord = getReplCoord2();
-        } else if(req.target.host() == "node3"){
+        } else if (req.target.host() == "node3") {
             targetReplCoord = getReplCoord3();
         }
 
@@ -922,8 +923,6 @@ public:
             net->blackHole(noi);
         }
     }
-
-
 };
 
 
@@ -959,20 +958,45 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     //
     // Message handling loop.
     //
+    auto net = getNet();
+    auto net2 = getNet2();
+    auto net3 = getNet3();
     while (!getReplCoord()->getMemberState().primary() || hasReadyRequests) {
-        getNet()->enterNetwork();
         unittest::log() << "### Trying to run clock forwards to: " << electionTime
                         << ", now: " << getNet()->now();
 
-        if (getNet()->now() < electionTime) {
-            getNet()->runUntil(electionTime);
+        net->enterNetwork();
+        if (net->now() < electionTime) {
+            net->runUntil(electionTime);
+        }
+        handleRequest(net);
+
+        // Let network2 handle its requests.
+        net2->enterNetwork();
+        if (net2->now() < electionTime) {
+            net2->runUntil(electionTime);
+        }
+        while (net2->hasReadyRequests()) {
+            handleRequest(net2);
         }
 
-        handleRequest(getNet());
-
-        getNet()->runReadyNetworkOperations();
-        hasReadyRequests = getNet()->hasReadyRequests();
-        getNet()->exitNetwork();
+        // Let network3 handle its requests.
+        net3->enterNetwork();
+        if (net3->now() < electionTime) {
+            net3->runUntil(electionTime);
+        }
+        while (net3->hasReadyRequests()) {
+            handleRequest(net3);
+        }
+        unittest::log() << "### Running ready network operations for all nets.";
+        // Run all ready network operations.
+        net3->runReadyNetworkOperations();
+        net2->runReadyNetworkOperations();
+        net->runReadyNetworkOperations();
+        hasReadyRequests = net->hasReadyRequests();
+        net->exitNetwork();
+        net2->exitNetwork();
+        net3->exitNetwork();
     }
 
     auto opCtx = makeOperationContext();
