@@ -968,8 +968,8 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     // Start out in config version 2 to simulate case where a node that already has a non-initial
     // config.
     auto seed = curTimeMillis64();
-//    srand(seed);
-    srand(1582607567481);
+    srand(seed);
+//    srand(1582607567481);
     unittest::log() << "### test seed: " << seed;
     init();
     auto configVersion = 2;
