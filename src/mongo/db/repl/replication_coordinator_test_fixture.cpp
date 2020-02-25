@@ -115,7 +115,7 @@ void ReplCoordTest::addSelf(const HostAndPort& selfHost) {
 }
 
 // the necessary mock infrastructure to support an isolated ReplCoord instance.
-struct ReplCoordHarness{
+struct ReplCoordHarness {
     // The mocks.
     StorageInterfaceMock* _storageInterface;
     ReplicationProcess* _replicationProcess;
@@ -132,36 +132,27 @@ void ReplCoordTest::init() {
     invariant(!_callShutdown);
     const auto opCtx = makeOperationContext();
 
-//    auto service = getGlobalServiceContext();
+    //    auto service = getGlobalServiceContext();
     // Eventually we might really want to create a ServiceContextMock to support some basic
     // functionality and to hang things off of.
     auto service = nullptr;
     _storageInterface = new StorageInterfaceMock();
-//    StorageInterface::set(service, std::unique_ptr<StorageInterface>(_storageInterface));
-//    ASSERT_TRUE(_storageInterface == StorageInterface::get(service));
+    //    StorageInterface::set(service, std::unique_ptr<StorageInterface>(_storageInterface));
+    //    ASSERT_TRUE(_storageInterface == StorageInterface::get(service));
 
     unittest::log() << "### Setting replication process.";
-    _replicationProcess = new ReplicationProcess(_storageInterface,
-                                                               std::make_unique<ReplicationConsistencyMarkersMock>(),
-                                                               std::make_unique<ReplicationRecoveryMock>());
+    _replicationProcess =
+        new ReplicationProcess(_storageInterface,
+                               std::make_unique<ReplicationConsistencyMarkersMock>(),
+                               std::make_unique<ReplicationRecoveryMock>());
     unittest::log() << "### replProcess: " << (_replicationProcess == 0);
-
-//    auto status = _replicationProcess->getConsistencyMarkers()->createInternalCollections(opCtx.get());
-//    ASSERT_OK(status);
-
-//    ReplicationProcess::set(
-//        service,
-//        std::make_unique<ReplicationProcess>(_storageInterface,
-//                                             std::make_unique<ReplicationConsistencyMarkersMock>(),
-//                                             std::make_unique<ReplicationRecoveryMock>()));
-//    auto replicationProcess = ReplicationProcess::get(service);
 
     // PRNG seed for tests.
     const int64_t seed = 0;
 
     unittest::log() << "### Creating logical clock.";
     auto logicalClock = std::make_unique<LogicalClock>(service);
-//    LogicalClock::set(service, std::move(logicalClock));
+    //    LogicalClock::set(service, std::move(logicalClock));
 
     TopologyCoordinator::Options settings;
     auto topo = std::make_unique<TopologyCoordinator>(settings);
@@ -184,44 +175,31 @@ void ReplCoordTest::init() {
                                                          _replicationProcess,
                                                          _storageInterface,
                                                          seed);
-//    service->setFastClockSource(std::make_unique<executor::NetworkInterfaceMockClockSource>(_net));
-//    service->setPreciseClockSource(
-//        std::make_unique<executor::NetworkInterfaceMockClockSource>(_net));
+    //    service->setFastClockSource(std::make_unique<executor::NetworkInterfaceMockClockSource>(_net));
+    //    service->setPreciseClockSource(
+    //        std::make_unique<executor::NetworkInterfaceMockClockSource>(_net));
 
 
-//////////////////
-// Make second repl coord.
-////
+    //////////////////
+    // Make second repl coord.
+    //////////////////
 
-
-//    auto service = getGlobalServiceContext();
     // Eventually we might really want to create a ServiceContextMock to support some basic
     // functionality and to hang things off of.
     _storageInterface2 = new StorageInterfaceMock();
-//    StorageInterface::set(service, std::unique_ptr<StorageInterface>(_storageInterface));
-//    ASSERT_TRUE(_storageInterface == StorageInterface::get(service));
 
     unittest::log() << "### Setting replication process.";
-    _replicationProcess2 = new ReplicationProcess(_storageInterface2,
-                                                 std::make_unique<ReplicationConsistencyMarkersMock>(),
-                                                 std::make_unique<ReplicationRecoveryMock>());
+    _replicationProcess2 =
+        new ReplicationProcess(_storageInterface2,
+                               std::make_unique<ReplicationConsistencyMarkersMock>(),
+                               std::make_unique<ReplicationRecoveryMock>());
     unittest::log() << "### replProcess: " << (_replicationProcess2 == 0);
-
-//    auto status = _replicationProcess->getConsistencyMarkers()->createInternalCollections(opCtx.get());
-//    ASSERT_OK(status);
-
-//    ReplicationProcess::set(
-//        service,
-//        std::make_unique<ReplicationProcess>(_storageInterface,
-//                                             std::make_unique<ReplicationConsistencyMarkersMock>(),
-//                                             std::make_unique<ReplicationRecoveryMock>()));
-//    auto replicationProcess = ReplicationProcess::get(service);
 
     // PRNG seed for tests.
 
     unittest::log() << "### Creating logical clock.";
-//    auto logicalClock = std::make_unique<LogicalClock>(service);
-//    LogicalClock::set(service, std::move(logicalClock));
+    //    auto logicalClock = std::make_unique<LogicalClock>(service);
+    //    LogicalClock::set(service, std::move(logicalClock));
 
     TopologyCoordinator::Options settings2;
     auto topo2 = std::make_unique<TopologyCoordinator>(settings2);
@@ -234,28 +212,29 @@ void ReplCoordTest::init() {
     tpOptions2.onCreateThread = []() { Client::initThread("replexec2"); };
     auto pool2 = std::make_unique<executor::ThreadPoolMock>(_net2, seed, tpOptions2);
     auto replExec2 =
-            std::make_unique<executor::ThreadPoolTaskExecutor>(std::move(pool2), std::move(net2));
+        std::make_unique<executor::ThreadPoolTaskExecutor>(std::move(pool2), std::move(net2));
     _replExec2 = replExec2.get();
     _repl2 = std::make_unique<ReplicationCoordinatorImpl>(service,
-                                                         _settings,
-                                                         std::move(externalState2),
-                                                         std::move(replExec2),
-                                                         std::move(topo2),
-                                                         _replicationProcess2,
-                                                         _storageInterface2,
-                                                         seed);
-
+                                                          _settings,
+                                                          std::move(externalState2),
+                                                          std::move(replExec2),
+                                                          std::move(topo2),
+                                                          _replicationProcess2,
+                                                          _storageInterface2,
+                                                          seed);
 
 
     auto configDoc = BSON("_id"
-                                  << "mySet"
-                                  << "protocolVersion" << 1
-                                  << "version" << 2 << "members"
-                                  << BSON_ARRAY(BSON("_id" << 1 << "host"
-                                                           << "node1:12345")
-                                                        << BSON("_id" << 2 << "host"
-                                                                      << "node2:12345"<< "priority" << 1)<< BSON("_id" << 3 << "host"
-                                                                                                                       << "node3:12345"<< "priority" << 1)));
+                          << "mySet"
+                          << "protocolVersion" << 1 << "version" << 2 << "members"
+                          << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                   << "node1:12345")
+                                        << BSON("_id" << 2 << "host"
+                                                      << "node2:12345"
+                                                      << "priority" << 1)
+                                        << BSON("_id" << 3 << "host"
+                                                      << "node3:12345"
+                                                      << "priority" << 1)));
     _externalState2->setLocalConfigDocument(StatusWith<BSONObj>(configDoc));
     _externalState2->addSelf(HostAndPort("node2", 12345));
     unittest::log() << "### Set local config doc in second repl coord.";
@@ -266,38 +245,26 @@ void ReplCoordTest::init() {
     _repl2->waitForStartUpComplete_forTest();
     unittest::log() << "### Finished starting up second repl coord.";
 
-//////////////////
-// Make third repl coord.
-////
+    //////////////////
+    // Make third repl coord.
+    //////////////////
 
-//    auto service = getGlobalServiceContext();
     // Eventually we might really want to create a ServiceContextMock to support some basic
     // functionality and to hang things off of.
     _storageInterface3 = new StorageInterfaceMock();
-//    StorageInterface::set(service, std::unique_ptr<StorageInterface>(_storageInterface));
-//    ASSERT_TRUE(_storageInterface == StorageInterface::get(service));
 
     unittest::log() << "### Setting replication process.";
-    _replicationProcess3 = new ReplicationProcess(_storageInterface3,
-                                                  std::make_unique<ReplicationConsistencyMarkersMock>(),
-                                                  std::make_unique<ReplicationRecoveryMock>());
+    _replicationProcess3 =
+        new ReplicationProcess(_storageInterface3,
+                               std::make_unique<ReplicationConsistencyMarkersMock>(),
+                               std::make_unique<ReplicationRecoveryMock>());
     unittest::log() << "### replProcess: " << (_replicationProcess3 == 0);
-
-//    auto status = _replicationProcess->getConsistencyMarkers()->createInternalCollections(opCtx.get());
-//    ASSERT_OK(status);
-
-//    ReplicationProcess::set(
-//        service,
-//        std::make_unique<ReplicationProcess>(_storageInterface,
-//                                             std::make_unique<ReplicationConsistencyMarkersMock>(),
-//                                             std::make_unique<ReplicationRecoveryMock>()));
-//    auto replicationProcess = ReplicationProcess::get(service);
 
     // PRNG seed for tests.
 
     unittest::log() << "### Creating logical clock.";
-//    auto logicalClock = std::make_unique<LogicalClock>(service);
-//    LogicalClock::set(service, std::move(logicalClock));
+    //    auto logicalClock = std::make_unique<LogicalClock>(service);
+    //    LogicalClock::set(service, std::move(logicalClock));
 
     TopologyCoordinator::Options settings3;
     auto topo3 = std::make_unique<TopologyCoordinator>(settings3);
@@ -310,7 +277,7 @@ void ReplCoordTest::init() {
     tpOptions3.onCreateThread = []() { Client::initThread("replexec3"); };
     auto pool3 = std::make_unique<executor::ThreadPoolMock>(_net3, seed, tpOptions3);
     auto replExec3 =
-            std::make_unique<executor::ThreadPoolTaskExecutor>(std::move(pool3), std::move(net3));
+        std::make_unique<executor::ThreadPoolTaskExecutor>(std::move(pool3), std::move(net3));
     _replExec3 = replExec3.get();
     _repl3 = std::make_unique<ReplicationCoordinatorImpl>(service,
                                                           _settings,
@@ -322,16 +289,6 @@ void ReplCoordTest::init() {
                                                           seed);
 
 
-
-//    auto configDoc = BSON("_id"
-//                                  << "mySet"
-//                                  << "protocolVersion" << 1
-//                                  << "version" << 2 << "members"
-//                                  << BSON_ARRAY(BSON("_id" << 1 << "host"
-//                                                           << "node1:12345")
-//                                                        << BSON("_id" << 2 << "host"
-//                                                                      << "node2:12345"<< "priority" << 0) << BSON("_id" << 3 << "host"
-//                                                                                                                        << "node3:12345"<< "priority" << 0)));
     _externalState3->setLocalConfigDocument(StatusWith<BSONObj>(configDoc));
     _externalState3->addSelf(HostAndPort("node3", 12345));
     unittest::log() << "### Set local config doc in third repl coord.";
@@ -341,7 +298,6 @@ void ReplCoordTest::init() {
     _repl3->startup(opCtx.get());
     _repl3->waitForStartUpComplete_forTest();
     unittest::log() << "### Finished starting up third repl coord.";
-
 }
 
 void ReplCoordTest::init(const ReplSettings& settings) {

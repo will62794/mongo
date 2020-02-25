@@ -900,13 +900,12 @@ public:
             // We have a heartbeat request.
             ReplSetHeartbeatResponse res;
             auto hst = targetReplCoord->processHeartbeatV1(hbArgs, &res);
-            //            ASSERT_OK(hst);
             BSONObjBuilder respObj;
             res.addToBSON(&respObj);
-            if(rand() % 4 == 0){
+            if (rand() % 4 == 0) {
                 // Randomly drop some heartbeats.
                 net->blackHole(noi);
-            }else{
+            } else {
                 net->scheduleResponse(noi, net->now(), makeResponseStatus(respObj.obj()));
             }
             net->runReadyNetworkOperations();
@@ -969,7 +968,7 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     // config.
     auto seed = curTimeMillis64();
     srand(seed);
-//    srand(1582607567481);
+    //    srand(1582607567481);
     unittest::log() << "### test seed: " << seed;
     init();
     auto configVersion = 2;
@@ -993,9 +992,9 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     getReplCoord2()->setMyLastAppliedOpTimeAndWallTime({opTime, Date_t() + Seconds(1)});
     getReplCoord2()->setMyLastDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(1)});
 
-    auto electionTime = getReplCoord()->getElectionTimeout_forTest();
-    electionTime = electionTime + Seconds(600*10);  // run for 10 mins of virtual time.
-    unittest::log() << "### Trying to simulate election at: " << electionTime;
+    auto targetTime = getReplCoord()->getElectionTimeout_forTest();
+    targetTime = targetTime + Seconds(600 * 10);  // run for 10 mins of virtual time.
+    unittest::log() << "### Trying to simulate election at: " << targetTime;
     bool hasReadyRequests = true;
 
     //
@@ -1007,23 +1006,23 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     auto net2 = getNet2();
     auto net3 = getNet3();
     //    while (!getReplCoord()->getMemberState().primary() || hasReadyRequests) {
-    while (net->now() < electionTime || hasReadyRequests) {
-        unittest::log() << "### Trying to run clock forwards to: " << electionTime
+    while (net->now() < targetTime || hasReadyRequests) {
+        unittest::log() << "### Trying to run clock forwards to: " << targetTime
                         << ", now: " << getNet()->now();
 
+        // Let network1 handle its requests.
         net->enterNetwork();
-        if (net->now() < electionTime) {
-            net->runUntil(electionTime);
+        if (net->now() < targetTime) {
+            net->runUntil(targetTime);
         }
         while (net->hasReadyRequests()) {
             handleRequest(net);
         }
-//        handleRequest(net);
 
         // Let network2 handle its requests.
         net2->enterNetwork();
-        if (net2->now() < electionTime) {
-            net2->runUntil(electionTime);
+        if (net2->now() < targetTime) {
+            net2->runUntil(targetTime);
         }
         while (net2->hasReadyRequests()) {
             handleRequest(net2);
@@ -1031,8 +1030,8 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
 
         // Let network3 handle its requests.
         net3->enterNetwork();
-        if (net3->now() < electionTime) {
-            net3->runUntil(electionTime);
+        if (net3->now() < targetTime) {
+            net3->runUntil(targetTime);
         }
         while (net3->hasReadyRequests()) {
             handleRequest(net3);
@@ -1086,18 +1085,11 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
         }
     }
 
-    auto opCtx = makeOperationContext();
-    opCtx->setShouldParticipateInFlowControl(false);
-    getExternalState()->setFirstOpTimeOfMyTerm(OpTime(Timestamp(30, 1), getReplCoord()->getTerm()));
-    getReplCoord()->signalDrainComplete(opCtx.get(), getReplCoord()->getTerm());
-
-    //    unittest::log() << "### Random members: " << randomMembers(1);
-    //    unittest::log() << "### Random members: " << randomMembers(2);
-    //    unittest::log() << "### Random members: " << randomMembers(3);
-    //    unittest::log() << "### Random members: " << randomMembers(1);
-    //    unittest::log() << "### Random members: " << randomMembers(1);
-    //    unittest::log() << "### Random members: " << randomMembers(1);
-    //    unittest::log() << "### Random members: " << randomMembers(1);
+    //    auto opCtx = makeOperationContext();
+    //    opCtx->setShouldParticipateInFlowControl(false);
+    //    getExternalState()->setFirstOpTimeOfMyTerm(OpTime(Timestamp(30, 1),
+    //    getReplCoord()->getTerm())); getReplCoord()->signalDrainComplete(opCtx.get(),
+    //    getReplCoord()->getTerm());
 }
 
 }  // anonymous namespace
