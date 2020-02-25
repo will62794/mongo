@@ -215,6 +215,8 @@ runStepDownTest({
         newConfig.version++;
 
         // Run it on primary
+        // TODO: Remove this extra 'awaitReplication' call once SERVER-45089 is complete.
+        rst.awaitReplication();
         assert.commandWorked(primary.adminCommand({replSetReconfig: newConfig, force: false}));
 
         // Now, step up the secondary which will make the current primary to step down.

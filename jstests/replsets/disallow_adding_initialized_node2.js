@@ -36,8 +36,10 @@ var primaryA = replSetA.getPrimary();
 var primaryB = replSetB.getPrimary();
 jsTestLog('Before merging: primary A = ' + primaryA.host + '; primary B = ' + primaryB.host);
 
-var configA = assert.commandWorked(primaryA.adminCommand({replSetGetConfig: 1})).config;
-var configB = assert.commandWorked(primaryB.adminCommand({replSetGetConfig: 1})).config;
+var configA =
+    assert.commandWorked(primaryA.adminCommand({replSetGetConfig: 1, force: true})).config;
+var configB =
+    assert.commandWorked(primaryB.adminCommand({replSetGetConfig: 1, force: true})).config;
 assert(configA.settings.replicaSetId instanceof ObjectId);
 assert(configB.settings.replicaSetId instanceof ObjectId);
 jsTestLog('Replica set A ID = ' + configA.settings.replicaSetId);
@@ -50,7 +52,7 @@ replSetB.stop(0);
 jsTestLog("Adding replica set B's primary " + primaryB.host + " to replica set A's config");
 configA.version++;
 configA.members.push({_id: 12, host: primaryB.host});
-assert.commandWorked(primaryA.adminCommand({replSetReconfig: configA}));
+assert.commandWorked(primaryA.adminCommand({replSetReconfig: configA, force: true}));
 
 jsTestLog("Restarting B's primary " + primaryB.host);
 primaryB = replSetB.start(0, {dbpath: "$set-B-$node", restart: true});
