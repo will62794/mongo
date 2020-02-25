@@ -3071,6 +3071,8 @@ Status ReplicationCoordinatorImpl::processReplSetReconfig(OperationContext* opCt
             ServerGlobalParams::FeatureCompatibility::Version::kFullyUpgradedTo44)) {
         // Wait for the config document to be replicated to a majority of nodes in the new
         // config.
+        LOGV2(5181000,
+              "Waiting for the config to be replicated to a majority in the new config.");
         uassertStatusOK(awaitReplication(opCtx, OpTime(), writeConcern).status);
     }
 

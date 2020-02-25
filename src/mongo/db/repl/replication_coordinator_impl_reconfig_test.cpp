@@ -337,11 +337,6 @@ TEST_F(ReplCoordTest, NodeReturnsOutOfDiskSpaceWhenSavingANewConfigFailsDuringRe
     const auto opCtx = makeOperationContext();
     stdx::thread reconfigThread([&] { doReplSetReconfig(getReplCoord(), &status, opCtx.get()); });
 
-//<<<<<<< HEAD
-//=======
-    replyToReceivedHeartbeatV1();
-
-//>>>>>>> SERVER-45087 Enforce oplog commitment check on replica set reconfig
     reconfigThread.join();
     ASSERT_EQUALS(ErrorCodes::OutOfDiskSpace, status);
 }
@@ -455,12 +450,8 @@ TEST_F(ReplCoordTest, PrimaryNodeAcceptsNewConfigWhenReceivingAReconfigWithAComp
     stdx::thread reconfigThread(
         [&] { doReplSetReconfig(getReplCoord(), &status, opCtx.get(), OpTime::kInitialTerm); });
 
-//<<<<<<< HEAD
     // Receive heartbeat from secondary saying that it has replicated the new config (v: 3, t: 1).
     // This should allow us to finish waiting for the config majority.
-//=======
-    // Satisfy quorum check.
-//>>>>>>> SERVER-45087 Enforce oplog commitment check on replica set reconfig
     NetworkInterfaceMock* net = getNet();
     getNet()->enterNetwork();
     const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
@@ -710,7 +701,10 @@ public:
                     << members);
     }
 
-    void respondToHeartbeat(NetworkInterfaceMock* net, bool blackHole = false) {
+    void respondToHeartbeat(NetworkInterfaceMock* net,
+                            int configVersion = 1,
+                            int configTerm = -1,
+                            bool blackHole = false) {
         const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
         const RemoteCommandRequest& request = noi->getRequest();
         repl::ReplSetHeartbeatArgsV1 hbArgs;
@@ -718,7 +712,8 @@ public:
         repl::ReplSetHeartbeatResponse hbResp;
         hbResp.setSetName("mySet");
         hbResp.setState(MemberState::RS_SECONDARY);
-        hbResp.setConfigVersion(1);
+        hbResp.setConfigVersion(configVersion);
+        hbResp.setConfigTerm(configTerm);
         BSONObjBuilder respObj;
         hbResp.setAppliedOpTimeAndWallTime({OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100)});
         hbResp.setDurableOpTimeAndWallTime({OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100)});
@@ -775,11 +770,11 @@ TEST_F(ReplCoordReconfigTest,
     reconfigThread = stdx::thread(
         [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
 
-    // Satisfy the quorum check.
+    // Satisfy config replication check.
     auto net = getNet();
     enterNetwork();
-    respondToHeartbeat(net);
-    respondToHeartbeat(net);
+    respondToHeartbeat(net, configVersion, 1 /* configTerm */);
+    respondToHeartbeat(net, configVersion, 1 /* configTerm */);
     exitNetwork();
 
     // Satisfy oplog commitment wait.
@@ -829,12 +824,6 @@ TEST_F(ReplCoordReconfigTest,
     reconfigThread = stdx::thread(
         [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
 
-    // Satisfy the quorum check.
-    auto net = getNet();
-    enterNetwork();
-    respondToHeartbeat(net);
-    exitNetwork();
-
     reconfigThread.join();
     ASSERT_EQUALS(status.code(), ErrorCodes::ConfigurationInProgress);
 
@@ -844,9 +833,9 @@ TEST_F(ReplCoordReconfigTest,
     reconfigThread = stdx::thread(
         [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
 
-    // Satisfy quorum check.
+    // Satisfy config replication.
     enterNetwork();
-    respondToHeartbeat(net);
+    respondToHeartbeat(getNet(), configVersion, 1 /* configTerm */);
     exitNetwork();
 
     reconfigThread.join();
@@ -890,17 +879,11 @@ TEST_F(ReplCoordReconfigTest,
     reconfigThread = stdx::thread(
         [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
 
-    // Satisfy the quorum check.
-    auto net = getNet();
-    enterNetwork();
-    respondToHeartbeat(net);
-    exitNetwork();
-
     reconfigThread.join();
     ASSERT_OK(status);
 }
 
-// TODO: Enable this once changes from SERVER-45089 are complete.
+//// TODO: Enable this once changes from SERVER-45089 are complete.
 // TEST_F(ReplCoordReconfigTest, ReconfigBypassesOplogCommitmentCheckWhenLeavingAForceReconfig) {
 //    // Start out in config version 2 to simulate case where a node that already has a non-initial
 //    // config.
@@ -943,7 +926,9 @@ TEST_F(ReplCoordReconfigTest,
 //    // Satisfy the quorum check.
 //    auto net = getNet();
 //    enterNetwork();
-//    respondToHeartbeat(net);
+//    respondToHeartbeat(net, configVersion, 1 /* configTerm */);
+//    respondToHeartbeat(net, configVersion, 1 /* configTerm */);
+////    respondToHeartbeat(net);
 //    exitNetwork();
 //
 //    reconfigThread.join();
@@ -961,13 +946,20 @@ TEST_F(ReplCoordReconfigTest,
 //    reconfigThread = stdx::thread(
 //        [&] { status = getReplCoord()->processReplSetReconfig(opCtx.get(), args, &result); });
 //
+//    unittest::log() << "### Doing second quorum check";
 //    // Satisfy the quorum check.
 //    enterNetwork();
-//    respondToHeartbeat(net);
-//    respondToHeartbeat(net);
-//    respondToHeartbeat(net);
-//    respondToHeartbeat(net);
+////    respondToHeartbeat(net, configVersion, 1 /* configTerm */);
+////    respondToHeartbeat(net, configVersion, 1 /* configTerm */);
+////    respondToHeartbeat(net, configVersion, 1 /* configTerm */);
+//
+////    respondToHeartbeat(net);
+////    respondToHeartbeat(net);
+////    respondToHeartbeat(net);
+////    respondToHeartbeat(net);
 //    exitNetwork();
+//
+//    ASSERT_OK(getReplCoord()->setLastAppliedOptime_forTest(configVersion, 3, opTime));
 //
 //    reconfigThread.join();
 //    ASSERT_OK(status);
