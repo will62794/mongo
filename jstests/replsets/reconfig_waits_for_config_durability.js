@@ -5,7 +5,7 @@
  */
 (function() {
 const rst = new ReplSetTest({
-    nodes: 3,
+    nodes: [{}, {rsConfig: {priority: 0}}],
     nodeOptions: {
         // Turn up the syncdelay (in seconds) to effectively disable background checkpoints.
         syncdelay: 600,
@@ -16,39 +16,37 @@ const rst = new ReplSetTest({
 rst.startSet();
 rst.initiate();
 
-assert.commandWorked(rst.getPrimary().getDB("test")["test"].insert({x: 1}));
-rst.awaitReplication();
-rst.awaitLastOpCommitted();
-
+// We will kill node 1 after it installs and acknowledges a config to make sure it has made it
+// durable. Disable journaling on the node so we are sure that the config write is flushed
+// explicitly.
 let nodeIdToKill = 1;
 let journalFp = configureFailPoint(rst.nodes[nodeIdToKill], "pauseJournalFlusherThread");
 journalFp.wait();
 
-// Do a reconfig and wait for propagation.
+// Do a reconfig and wait for propagation to all nodes.
 jsTestLog("Doing a reconfig.");
-let config = rst.getReplSetConfigFromNode(0);
-
-jsTestLog("Original config: " + tojson(config));
-config.version++;
-let newConfigVersion = config.version;
-let start = new Date();
+let config = rst.getReplSetConfigFromNode();
+let newConfigVersion = config.version + 1;
+config.version = newConfigVersion;
 assert.commandWorked(rst.getPrimary().adminCommand({replSetReconfig: config}));
 rst.awaitNodesAgreeOnConfigVersion();
-jsTestLog("Finished waiting for reconfig to propagate. Took: " + (new Date() - start) + "ms");
 
-rst.nodes[1].disconnect([rst.nodes[0], rst.nodes[2]]);
+// Verify the node has the right config.
+assert.eq(rst.getReplSetConfigFromNode(nodeIdToKill).version, newConfigVersion);
+jsTestLog("Finished waiting for reconfig to propagate.");
 
-jsTestLog("Kill and restart a secondary node.");
+// Isolate node 1 so that it does not automatically learn of a new config via heartbeat after
+// restart.
+rst.nodes[1].disconnect([rst.nodes[0]]);
+
+jsTestLog("Kill and restart the secondary node.");
 rst.stop(nodeIdToKill, 9, {allowedExitCode: MongoRunner.EXIT_SIGKILL}, {forRestart: true});
 rst.start(nodeIdToKill, undefined, true /* restart */);
 
-config = rst.getReplSetConfigFromNode(nodeIdToKill);
-jsTestLog("New config: " + tojson(config));
-assert.eq(config.version, newConfigVersion);
+// Make sure that node 1 still has the config it acknowledged.
+assert.eq(rst.getReplSetConfigFromNode(nodeIdToKill).version, newConfigVersion);
 
-rst.nodes[1].reconnect([rst.nodes[0], rst.nodes[2]]);
-
-rst.awaitNodesAgreeOnConfigVersion();
-
+// Re-connect the node to let the test complete.
+rst.nodes[1].reconnect([rst.nodes[0]]);
 rst.stopSet();
 }());
