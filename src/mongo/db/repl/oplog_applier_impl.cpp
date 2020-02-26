@@ -403,7 +403,7 @@ void ApplyBatchFinalizerForJournal::_run() {
         }
 
         auto opCtx = cc().makeOperationContext();
-        opCtx->recoveryUnit()->waitUntilDurable(opCtx.get());
+//        opCtx->recoveryUnit()->waitUntilDurable(opCtx.get());
         _recordDurable(latestOpTimeAndWallTime);
     }
 }
@@ -623,7 +623,7 @@ StatusWith<OpTime> OplogApplierImpl::_applyOplogBatch(OperationContext* opCtx,
                                                       std::vector<OplogEntry> ops) {
     invariant(!ops.empty());
 
-    LOGV2_DEBUG(21230, 2, "replication batch size is {ops_size}", "ops_size"_attr = ops.size());
+    LOGV2_DEBUG(21230, 0, "replication batch size is {ops_size}", "ops_size"_attr = ops.size());
 
     // Stop all readers until we're done. This also prevents doc-locking engines from deleting old
     // entries from the oplog until we finish writing.

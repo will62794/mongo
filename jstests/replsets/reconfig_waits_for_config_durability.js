@@ -15,14 +15,42 @@ const rst = new ReplSetTest({
 rst.startSet();
 rst.initiate();
 
+assert.commandWorked(rst.getPrimary().getDB("test")["test"].insert({x: 1}));
+rst.awaitReplication();
+rst.awaitLastOpCommitted();
+
+sleep(1000);
+
+let nodeIdToKill = 1;
+let journalFp = configureFailPoint(rst.nodes[nodeIdToKill], "pauseJournalFlusherThread");
+journalFp.wait();
+
+// let checkpointFp = configureFailPoint(rst.nodes[nodeIdToKill], "pauseCheckpointThread");
+// checkpointFp.wait();
+
+
 // Do a reconfig and wait for propagation.
 jsTestLog("Doing a reconfig.");
 let config = rst.getReplSetConfigFromNode(0);
+
+jsTestLog("Original config: " + tojson(config));
+
 config.version++;
+let newConfigVersion = config.version;
 let start = new Date();
-rst.getPrimary().adminCommand({replSetReconfig: config});
+assert.commandWorked(rst.getPrimary().adminCommand({replSetReconfig: config}));
 rst.awaitNodesAgreeOnConfigVersion();
+sleep(500);
 jsTestLog("Finished waiting for reconfig to propagate. Took: " + (new Date() - start) + "ms");
+
+jsTestLog("Kill and restart a secondary node.");
+rst.stop(nodeIdToKill, 9, {allowedExitCode: MongoRunner.EXIT_SIGKILL}, {forRestart: true});
+rst.start(nodeIdToKill, undefined, true /* restart */);
+
+rst.awaitNodesAgreeOnConfigVersion();
+config = rst.getReplSetConfigFromNode(nodeIdToKill);
+jsTestLog("New config: " + tojson(config));
+assert.eq(config.version, newConfigVersion);
 
 rst.stopSet();
 }());

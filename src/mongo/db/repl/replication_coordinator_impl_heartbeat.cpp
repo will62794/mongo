@@ -621,7 +621,7 @@ void ReplicationCoordinatorImpl::_heartbeatReconfigStore(
         }
 
         LOGV2_FOR_HEARTBEATS(4615627,
-                             2,
+                             0,
                              "New configuration with {newConfig_getConfigVersionAndTerm} persisted "
                              "to local storage; installing new config in memory",
                              "newConfig_getConfigVersionAndTerm"_attr =
