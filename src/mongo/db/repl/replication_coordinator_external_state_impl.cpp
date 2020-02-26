@@ -551,6 +551,9 @@ Status ReplicationCoordinatorExternalStateImpl::storeLocalConfigDocument(Operati
             Helpers::putSingleton(opCtx, configCollectionName, config);
         });
 
+        // Wait for durability of the new config document.
+        opCtx->recoveryUnit()->waitUntilDurable(opCtx);
+
         return Status::OK();
     } catch (const DBException& ex) {
         return ex.toStatus();

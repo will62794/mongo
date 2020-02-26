@@ -582,6 +582,11 @@ void ReplicationCoordinatorImpl::_heartbeatReconfigStore(
 
         auto opCtx = cc().makeOperationContext();
         auto status = _externalState->storeLocalConfigDocument(opCtx.get(), newConfig.toBSON());
+
+        // TODO: Wait for durability of the config here before finishing reconfig and installing it
+        // in memory.
+
+
         bool isFirstConfig;
         {
             stdx::lock_guard<Latch> lk(_mutex);
@@ -753,8 +758,14 @@ void ReplicationCoordinatorImpl::_heartbeatReconfigFinish(
     // the data structures inside of the TopologyCoordinator.
     const int myIndexValue = myIndex.getStatus().isOK() ? myIndex.getValue() : -1;
 
+    LOGV2(984134, "### Sleeping before setting new config");
+
     const PostMemberStateUpdateAction action =
         _setCurrentRSConfig(lk, opCtx.get(), newConfig, myIndexValue);
+
+    LOGV2(984134,
+          "### Set current rs config via heartbeat: {}",
+          "something"_attr = newConfig.toBSON());
 
     lk.unlock();
     _performPostMemberStateUpdateAction(action);
