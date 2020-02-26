@@ -20,20 +20,9 @@ assert.commandWorked(rst.getPrimary().getDB("test")["test"].insert({x: 1}));
 rst.awaitReplication();
 rst.awaitLastOpCommitted();
 
-// sleep(1000);
-
 let nodeIdToKill = 1;
 let journalFp = configureFailPoint(rst.nodes[nodeIdToKill], "pauseJournalFlusherThread");
 journalFp.wait();
-
-// let journalFp1 = configureFailPoint(rst.nodes[0], "pauseJournalFlusherThread");
-// journalFp1.wait();
-
-// let checkpointFp = configureFailPoint(rst.nodes[nodeIdToKill], "pauseCheckpointThread");
-// checkpointFp.wait();
-
-// assert.commandWorked(rst.getPrimary().getDB("test")["test"].insert({x: 2}));
-// assert.commandWorked(rst.getPrimary().getDB("test")["test"].insert({x: 2}, {writeConcern:{w:"majority"}}));
 
 // Do a reconfig and wait for propagation.
 jsTestLog("Doing a reconfig.");
