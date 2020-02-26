@@ -3093,6 +3093,12 @@ Status ReplicationCoordinatorImpl::processReplSetReconfig(OperationContext* opCt
                                     << configOplogCommitmentOpTime.toString()
                                     << ") did not become committed in the current config.");
         }
+
+        LOGV2(4508700,
+              "Last committed optime in the previous config ({configOplogCommitmentOpTime}) became "
+              "committed in the current config after waiting {waitDuration}.",
+              "configOplogCommitmentOpTime"_attr = configOplogCommitmentOpTime,
+              "waitDuration"_attr = statusDur.duration);
     }
 
     return Status::OK();
