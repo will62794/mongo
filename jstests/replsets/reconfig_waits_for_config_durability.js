@@ -4,6 +4,10 @@
  * @tags: [requires_persistence, requires_fcv_44]
  */
 (function() {
+"use strict";
+
+load("jstests/libs/fail_point_util.js");
+
 const rst = new ReplSetTest({
     nodes: [{}, {rsConfig: {priority: 0}}],
     nodeOptions: {
@@ -22,6 +26,9 @@ rst.initiate();
 let nodeIdToKill = 1;
 let journalFp = configureFailPoint(rst.nodes[nodeIdToKill], "pauseJournalFlusherThread");
 journalFp.wait();
+
+// Pause the secondary applier thread so it does not cause extra journal flushes.
+configureFailPoint(rst.getSecondary(), "rsSyncApplyStop").wait();
 
 // Do a reconfig and wait for propagation to all nodes.
 jsTestLog("Doing a reconfig.");

@@ -350,8 +350,6 @@ void WiredTigerSessionCache::waitUntilDurable(OperationContext* opCtx,
             _conn->open_session(_conn, nullptr, "isolation=snapshot", &_waitUntilDurableSession));
     }
 
-
-//    LOGV2_DEBUG(2241229, 0, "flushing WT journal");
     // Use the journal when available, or a checkpoint otherwise.
     if (_engine && _engine->isDurable()) {
         invariantWTOK(_waitUntilDurableSession->log_flush(_waitUntilDurableSession, "sync=on"));

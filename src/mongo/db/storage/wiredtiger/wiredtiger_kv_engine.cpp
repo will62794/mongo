@@ -269,7 +269,6 @@ public:
                     _uniqueCtx.emplace(tc->makeOperationContext());
                 });
 
-//                LOGV2(123456, "Flushing journal now");
                 _sessionCache->waitUntilDurable(
                     _uniqueCtx->get(),
                     WiredTigerSessionCache::Fsync::kJournal,
