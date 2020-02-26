@@ -1,7 +1,7 @@
 /**
  * Make sure that reconfig waits for the config document to be durable on nodes before returning.
  *
- * @tags: [requires_persistence, requires_fcv44]
+ * @tags: [requires_persistence, requires_fcv_44]
  */
 (function() {
 const rst = new ReplSetTest({
