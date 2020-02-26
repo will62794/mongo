@@ -763,7 +763,7 @@ void ReplicationCoordinatorImpl::_heartbeatReconfigFinish(
     const PostMemberStateUpdateAction action =
         _setCurrentRSConfig(lk, opCtx.get(), newConfig, myIndexValue);
 
-    LOGV2(984134,
+    LOGV2(984135,
           "### Set current rs config via heartbeat: {}",
           "something"_attr = newConfig.toBSON());
 
