@@ -73,6 +73,9 @@ jsTestLog("Test that reconfig waits for last op committed in previous config.");
 
 let origConfig = rst.getReplSetConfigFromNode();
 
+//
+// Test removal, 5 -> 4.
+//
 let config = rst.getReplSetConfigFromNode();
 let count = config.members.length - 1;
 
@@ -119,11 +122,59 @@ assert.soonNoExcept(function() {
 });
 
 // Remove 1 node at a time and test safe reconfig succeeds in correct scenario.
-// assert.eq(rst.getReplSetConfigFromNode().members.length, 5);
-// testSafeReconfigRemove();
 assert.eq(rst.getReplSetConfigFromNode().members.length, 4);
-// testSafeReconfigRemove();
-// assert.eq(rst.getReplSetConfigFromNode().members.length, 3);
+
+// Reconfig down to 3 nodes.
+config.version++;
+config.members = config.members.slice(0, 3);
+assert.commandWorked(primary.adminCommand({replSetReconfig: config, force: true}));
+
+//
+// Test removal, 3 -> 2.
+//
+config = rst.getReplSetConfigFromNode();
+count = config.members.length - 1;
+
+jsTestLog("Reconfiguring down to " + count + " nodes.");
+// Stop replication to a maximal minority of nodes in the current config.
+currMajority = Math.floor(config.members.length / 2) + 1;
+minority = rst.nodes.slice(0, config.members.length).slice(currMajority);
+jsTestLog("Stopping server replication on: " + tojson(minority));
+minority.forEach(reconnect);
+stopServerReplication(minority);
+jsTestLog("Stopped server replication on: " + tojson(minority));
+
+// Remove one node from the config.
+newConfigMembers = config.members.slice(0, count);
+newConfigNodes = config.members.slice(0, count);
+origMembers = config.members;
+config.members = newConfigMembers;
+config.version++;
+
+// Commit an op in this config with the minimum set of nodes needed to satisfy a majority.
+assert.commandWorked(coll.insert({x: count}, {writeConcern: {w: "majority"}}));
+
+// Attempt to move to new config. Expect failure since the op cannot commit in the new config.
+assert.commandFailedWithCode(primary.adminCommand({replSetReconfig: config, maxTimeMS: 1000}),
+                             ErrorCodes.MaxTimeMSExpired);
+
+// Leaving the current config should be prohibited since the op is not committed.
+config.version++
+assert.commandFailedWithCode(primary.adminCommand({replSetReconfig: config, maxTimeMS: 1000}),
+                             ErrorCodes.ConfigurationInProgress);
+
+// Restart replication to one node of the minority. Reconfig should now eventually succeed.
+restartServerReplication(minority[0]);
+assert.soonNoExcept(function() {
+    assert.commandWorked(primary.adminCommand({replSetReconfig: config}));
+    return true;
+});
+
+// Restart replication to all minority members.
+assert.soonNoExcept(function() {
+    restartServerReplication(minority);
+    return true;
+});
 
 // Force reconfig back to the original set to stop test.
 origConfig.version = rst.getReplSetConfigFromNode().version + 1;
