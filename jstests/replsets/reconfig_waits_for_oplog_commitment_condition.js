@@ -10,8 +10,16 @@ load("jstests/libs/write_concern_util.js");
 
 const dbName = "test";
 const collName = "coll";
-// Make the secondary unelectable.
-let rst = new ReplSetTest({nodes: [{}, {rsConfig: {priority: 0}}]});
+// Use 5 nodes and make the secondaries unelectable.
+let rst = new ReplSetTest({
+    nodes: [
+        {},
+        {rsConfig: {priority: 0}},
+        {rsConfig: {priority: 0}},
+        {rsConfig: {priority: 0}},
+        {rsConfig: {priority: 0}}
+    ]
+});
 rst.startSet();
 rst.initiate();
 
@@ -20,75 +28,82 @@ const secondary = rst.getSecondary();
 const coll = primary.getDB(dbName)[collName];
 
 // This makes the test run faster.
-assert.commandWorked(secondary.adminCommand(
-    {configureFailPoint: 'setSmallOplogGetMoreMaxTimeMS', mode: 'alwaysOn'}));
+rst.getSecondaries().forEach((node) => {
+    assert.commandWorked(
+        node.adminCommand({configureFailPoint: 'setSmallOplogGetMoreMaxTimeMS', mode: 'alwaysOn'}));
+})
 
 // Create collection.
 assert.commandWorked(coll.insert({}));
 rst.awaitReplication();
 
-// Stop replication on the secondary.
-stopServerReplication(secondary);
-
-// Reconfig down to a 1 node replica set.
-let origConfig = rst.getReplSetConfigFromNode();
-let singleNodeConfig = Object.assign({}, origConfig);
-singleNodeConfig.members = singleNodeConfig.members.slice(0, 1);  // Remove the second node.
-singleNodeConfig.version++;
-assert.commandWorked(primary.adminCommand({replSetReconfig: singleNodeConfig}));
-
-//
-// Below we start out in config C1 = {n0}, try to reconfig to C2 = {n0,n1}, and then to C3 =
-// {n0,n1}. When we move from C1 -> C2, the last committed op in C1 cannot become committed in C2,
-// because replication is paused on n1. We will install C2, but time out while waiting for the op to
-// commit in C2. If we try then to execute another reconfig to move from C2 -> C3, it should fail
-// immediately since the last committed op from C1 is still not committed in C2. Once replication is
-// restarted on n1, the op can commit in C2 and we can complete a reconfig to C3.
-//
 jsTestLog("Test that reconfig waits for last op committed in previous config.");
 
-// {n0}
-let C1 = singleNodeConfig;
+// Pause replication on a minority of nodes in the current config, commit an op on the remaining
+// majority of the current config, and then try to run a reconfig that removes one of the nodes on
+// which replication is currently paused. The reconfig should initially fail due to a timeout.
+// Retrying the reconfig with a higher version should also fail since the op won't be committed in
+// the current config.
+function testSafeReconfigRemove() {
+    let config = rst.getReplSetConfigFromNode();
+    let count = config.members.length - 1;
 
-// {n0, n1}
-let C2 = Object.assign({}, origConfig);
-C2.version = C1.version + 1;
+    jsTestLog("Reconfiguring down to " + count + " nodes.");
+    // Stop replication to a maximal minority of nodes in the current config.
+    let currMajority = Math.floor(config.members.length / 2) + 1;
+    let minority = rst.nodes.slice(0, config.members.length).slice(currMajority);
+    stopServerReplication(minority);
+    jsTestLog("Stopped server replication on: " + tojson(minority));
 
-// {n0, n1}
-let C3 = Object.assign({}, origConfig);
-C3.version = C2.version + 1;
+    // Commit an op in this config with the minimum set of nodes needed to satisfy a majority.
+    assert.commandWorked(coll.insert({x: count}, {writeConcern: {w: "majority"}}));
 
-jsTestLog("Do a write on primary and commit it in the current config.");
-assert.commandWorked(coll.insert({x: 1}, {writeConcern: {w: "majority"}}));
+    // Remove one node from the config.
+    let newConfigMembers = config.members.slice(0, count);
+    let newConfigNodes = config.members.slice(0, count);
+    let origMembers = config.members;
+    config.members = newConfigMembers;
+    config.version++;
 
-jsTestLog("Reconfig to add the secondary back in.");
-// We expect this to fail with a time out since the last committed op from C1 cannot become
-// committed in C2.
-assert.commandFailedWithCode(primary.adminCommand({replSetReconfig: C2, maxTimeMS: 1000}),
-                             ErrorCodes.MaxTimeMSExpired);
+    // Commit an op in this config with the minimum set of nodes needed to satisfy a majority.
+    assert.commandWorked(coll.insert({x: count}, {writeConcern: {w: "majority"}}));
 
-// Wait until the config has propagated to the secondary and the primary has learned of it, so that
-// the config replication check is satisfied.
-// TODO (SERVER-44812): Wait for this by checking commitment status.
-assert.soon(function() {
-    const res = primary.adminCommand({replSetGetStatus: 1});
-    return res.members[1].configVersion === rst.getReplSetConfigFromNode().version;
-});
+    // Attempt to move to new config. Expect failure since the op cannot commit in the new config.
+    assert.commandFailedWithCode(primary.adminCommand({replSetReconfig: config, maxTimeMS: 1000}),
+                                 ErrorCodes.MaxTimeMSExpired);
 
-// Reconfig should fail immediately since we have not committed the last committed op from C1 in C2.
-assert.commandFailedWithCode(primary.adminCommand({replSetReconfig: C3}),
-                             ErrorCodes.ConfigurationInProgress);
+    // Leaving the current config should be prohibited since the op is not committed.
+    config.version++
+    assert.commandFailedWithCode(primary.adminCommand({replSetReconfig: config, maxTimeMS: 1000}),
+                                 ErrorCodes.ConfigurationInProgress);
 
-// Make sure we can connect to the secondary after it was REMOVED.
-reconnect(secondary);
+    // Restart replication to one node of the minority. Reconfig should now eventually succeed.
+    restartServerReplication(minority[0]);
+    assert.soonNoExcept(function() {
+        assert.commandWorked(primary.adminCommand({replSetReconfig: config}));
+        return true;
+    });
 
-// Let the last committed op from C1 become committed in the current config.
-restartServerReplication(secondary);
-rst.awaitReplication();
+    // Restart replication to all minority members.
+    assert.soonNoExcept(function() {
+        restartServerReplication(minority);
+        return true;
+    });
+}
 
-// Now that we can commit the op in the new config, reconfig should succeed.
-assert.commandWorked(primary.adminCommand({replSetReconfig: C3}));
+let origConfig = rst.getReplSetConfigFromNode();
 
-rst.awaitReplication();
+// Remove 1 node at a time and test safe reconfig succeeds in correct scenario.
+assert.eq(rst.getReplSetConfigFromNode().members.length, 5);
+testSafeReconfigRemove();
+assert.eq(rst.getReplSetConfigFromNode().members.length, 4);
+testSafeReconfigRemove();
+assert.eq(rst.getReplSetConfigFromNode().members.length, 3);
+
+// Force reconfig back to the original set to stop test.
+origConfig.version = rst.getReplSetConfigFromNode().version + 1;
+assert.commandWorked(primary.adminCommand({replSetReconfig: origConfig, force: true}));
+
 rst.stopSet();
+return;
 }());
