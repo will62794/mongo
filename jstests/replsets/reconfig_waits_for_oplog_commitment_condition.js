@@ -53,22 +53,23 @@ jsTestLog("Test that reconfig waits for last op committed in previous config.");
 // means that the original op is no longer committed in the new config.
 
 // In general, goal is to test cases where an op that can be committed in W nodes in config Ci
-// would not be committed with the same number of nodes in Cj.
+// would not be committed in Cj if we add a node, or if we remove one of the W nodes that committed
+// the write.
 //
 // Node add cases:
-// 1 (w:1) -> 2 (w:2)
-// 2 (w:2) -> 3 (w:2)
-// 3 (w:2) -> 4 (w:3)
-// 4 (w:3) -> 5 (w:3)
+// 1 (w:1) -> 2 (w:2), w'=1 - TEST
+// 2 (w:2) -> 3 (w:2), w'=2
+// 3 (w:2) -> 4 (w:3), w'=2 - TEST
+// 4 (w:3) -> 5 (w:3), w'=3
 //
-// Node remove cases:
-// 5 (w:3) -> 4 (w:3)
-// 4 (w:3) -> 3 (w:2)
-// 3 (w:2) -> 2 (w:2)
-// 2 (w:2) -> 1 (w:1)
+// Node removal cases (remove a node with the committed write):
+// 5 (w:3) -> 4 (w:3), w'=2 - TEST
+// 4 (w:3) -> 3 (w:2), w'=2
+// 3 (w:2) -> 2 (w:2), w'=1 - TEST
+// 2 (w:2) -> 1 (w:1), w'=1
 //
-// For adds, if you move from an ODD -> EVEN config, then safety is not guaranteed.
-// For removes, if you move from EVEN -> ODD config, then safety is not guaranteed.
+// For adds, ODD -> EVEN may be unsafe.
+// For removes, ODD -> EVEN may be unsafe.
 
 let origConfig = rst.getReplSetConfigFromNode();
 
