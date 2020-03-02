@@ -452,6 +452,20 @@ Status ReplicationCoordinatorExternalStateImpl::initializeReplSetStorage(Operati
                            });
 
         FeatureCompatibilityVersion::setIfCleanStartup(opCtx, _storageInterface);
+
+        // If we have started up in a lower FCV, remove the 'term' field from our config document.
+        if(!serverGlobalParams.featureCompatibility.isVersion(
+                ServerGlobalParams::FeatureCompatibility::Version::kFullyUpgradedTo44)){
+            BSONObjBuilder configBob;
+            for(auto f : config.getFieldNames<std::set<std::string>>()){
+                if(f != "term"){
+                    configBob.append(config.getField(f));
+                }
+            }
+            auto configRemoved = configBob.obj();
+            LOGV2(91237898, "Storing config without term", "config"_attr = configRemoved);
+            storeLocalConfigDocument(opCtx, configRemoved);
+        }
     } catch (const DBException& ex) {
         return ex.toStatus();
     }
