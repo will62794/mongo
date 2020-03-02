@@ -20,6 +20,7 @@
 TestData.skipAwaitingReplicationOnShardsBeforeCheckingUUIDs = true;
 // Restarts shard nodes with no keyFile.
 TestData.skipCheckOrphans = true;
+TestData.seed = 3898581777797857300;
 
 (function() {
 "use strict";
@@ -443,9 +444,9 @@ function runCommonTests(conn, curOpSpec) {
 }
 
 // Run the common tests on a shard, through mongoS, and on mongoS with 'localOps' enabled.
-runCommonTests(shardConn);
-runCommonTests(mongosConn);
-runCommonTests(mongosConn, {localOps: true});
+// runCommonTests(shardConn);
+// runCommonTests(mongosConn);
+// runCommonTests(mongosConn, {localOps: true});
 
 //
 // mongoS specific tests.
@@ -588,9 +589,9 @@ function runLocalOpsTests(conn) {
     assert.commandWorked(getMoreTest({conn: conn, curOpSpec: {allUsers: false, localOps: true}}));
 }
 
-// Run the localOps tests for both replset and mongoS.
-runLocalOpsTests(mongosConn);
-runLocalOpsTests(shardConn);
+// // Run the localOps tests for both replset and mongoS.
+// runLocalOpsTests(mongosConn);
+// runLocalOpsTests(shardConn);
 
 let sessionDBs = [];
 let sessions = [];
@@ -714,8 +715,8 @@ function runIdleSessionsTests(conn, adminDB, txnDB, useLocalOps) {
     }
 }
 
-runIdleSessionsTests(mongosConn, clusterAdminDB, clusterTestDB, true);
-runIdleSessionsTests(shardConn, shardAdminDB, shardTestDB, false);
+// runIdleSessionsTests(mongosConn, clusterAdminDB, clusterTestDB, true);
+// runIdleSessionsTests(shardConn, shardAdminDB, shardTestDB, false);
 
 //
 // No-auth tests.
