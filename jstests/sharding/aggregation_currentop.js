@@ -63,6 +63,16 @@ shardConn.waitForClusterTime(60);
 let shardTestDB = shardConn.getDB(jsTestName());
 let shardAdminDB = shardConn.getDB("admin");
 
+for (let i = 0; i < 3; i++) {
+    jsTestLog("Force reconfig on shard: " +
+        "rs" + i);
+    let primary = st["rs" + i].getPrimary();
+    authutil.asCluster(primary, key, function(){
+        assert.commandWorked(primary.adminCommand(
+            {replSetReconfig: st["rs" + i].getReplSetConfigFromNode(), force: true}));
+    });
+}
+
 function createUsers(conn) {
     let adminDB = conn.getDB("admin");
 
@@ -85,8 +95,6 @@ function createUsers(conn) {
 
 // Create necessary users at both cluster and shard-local level.
 createUsers(shardConn);
-createUsers(st.rs1.getPrimary());
-createUsers(st.rs2.getPrimary());
 createUsers(mongosConn);
 
 // Create a test database and some dummy data on rs0.
@@ -98,16 +106,6 @@ for (let i = 0; i < 5; i++) {
 
 st.ensurePrimaryShard(clusterTestDB.getName(), shardRS.name);
 
-for (let i = 0; i < 3; i++) {
-    jsTestLog("Force reconfig on shard: " +
-              "rs" + i);
-    authutil.asCluster(st["rs" + i].nodes, key, function() {
-        let primary = st["rs" + i].getPrimary();
-        jsTestLog("Got primary: " + primary.host);
-        assert.commandWorked(primary.adminCommand(
-            {replSetReconfig: st["rs" + i].getReplSetConfigFromNode(), force: true}));
-    });
-}
 
 // Restarts a replset with a different set of parameters. Explicitly set the keyFile to null,
 // since if ReplSetTest#stopSet sees a keyFile property, it attempts to auth before dbhash
@@ -603,8 +601,8 @@ function runLocalOpsTests(conn) {
 }
 
 // // Run the localOps tests for both replset and mongoS.
-// runLocalOpsTests(mongosConn);
-// runLocalOpsTests(shardConn);
+runLocalOpsTests(mongosConn);
+runLocalOpsTests(shardConn);
 
 let sessionDBs = [];
 let sessions = [];
