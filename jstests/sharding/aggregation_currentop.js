@@ -85,6 +85,8 @@ function createUsers(conn) {
 
 // Create necessary users at both cluster and shard-local level.
 createUsers(shardConn);
+createUsers(st.rs1.getPrimary());
+createUsers(st.rs2.getPrimary());
 createUsers(mongosConn);
 
 // Create a test database and some dummy data on rs0.
@@ -95,6 +97,17 @@ for (let i = 0; i < 5; i++) {
 }
 
 st.ensurePrimaryShard(clusterTestDB.getName(), shardRS.name);
+
+for (let i = 0; i < 3; i++) {
+    jsTestLog("Force reconfig on shard: " +
+              "rs" + i);
+    authutil.asCluster(st["rs" + i].nodes, key, function() {
+        let primary = st["rs" + i].getPrimary();
+        jsTestLog("Got primary: " + primary.host);
+        assert.commandWorked(primary.adminCommand(
+            {replSetReconfig: st["rs" + i].getReplSetConfigFromNode(), force: true}));
+    });
+}
 
 // Restarts a replset with a different set of parameters. Explicitly set the keyFile to null,
 // since if ReplSetTest#stopSet sees a keyFile property, it attempts to auth before dbhash
@@ -444,9 +457,9 @@ function runCommonTests(conn, curOpSpec) {
 }
 
 // Run the common tests on a shard, through mongoS, and on mongoS with 'localOps' enabled.
-// runCommonTests(shardConn);
-// runCommonTests(mongosConn);
-// runCommonTests(mongosConn, {localOps: true});
+runCommonTests(shardConn);
+runCommonTests(mongosConn);
+runCommonTests(mongosConn, {localOps: true});
 
 //
 // mongoS specific tests.
@@ -715,8 +728,8 @@ function runIdleSessionsTests(conn, adminDB, txnDB, useLocalOps) {
     }
 }
 
-// runIdleSessionsTests(mongosConn, clusterAdminDB, clusterTestDB, true);
-// runIdleSessionsTests(shardConn, shardAdminDB, shardTestDB, false);
+runIdleSessionsTests(mongosConn, clusterAdminDB, clusterTestDB, true);
+runIdleSessionsTests(shardConn, shardAdminDB, shardTestDB, false);
 
 //
 // No-auth tests.
