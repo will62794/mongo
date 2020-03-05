@@ -4375,14 +4375,14 @@ Status ReplicationCoordinatorImpl::processReplSetRequestVotes(
 
         // If the vote was not granted to the candidate, we still want to track metrics around the
         // node's participation in the election.
-        const long long electionTerm = args.getTerm();
-        const Date_t lastVoteDate = _replExecutor->now();
-        const int electionCandidateMemberId =
-            _rsConfig.getMemberAt(candidateIndex).getId().getData();
-        const std::string voteReason = response->getReason();
-        const OpTime lastAppliedOpTime = _topCoord->getMyLastAppliedOpTime();
-        const OpTime maxAppliedOpTime = _topCoord->latestKnownOpTime();
-        const double priorityAtElection = _rsConfig.getMemberAt(_selfIndex).getPriority();
+//        const long long electionTerm = args.getTerm();
+//        const Date_t lastVoteDate = _replExecutor->now();
+//        const int electionCandidateMemberId =
+//            _rsConfig.getMemberAt(candidateIndex).getId().getData();
+//        const std::string voteReason = response->getReason();
+//        const OpTime lastAppliedOpTime = _topCoord->getMyLastAppliedOpTime();
+//        const OpTime maxAppliedOpTime = _topCoord->latestKnownOpTime();
+//        const double priorityAtElection = _rsConfig.getMemberAt(_selfIndex).getPriority();
 
 //        ReplicationMetrics::get(getServiceContext())
 //            .setElectionParticipantMetrics(votedForCandidate,

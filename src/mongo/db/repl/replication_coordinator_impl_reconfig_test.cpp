@@ -968,7 +968,7 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     // config.
     auto seed = curTimeMillis64();
     srand(seed);
-    //    srand(1582607567481);
+//        srand(1582607567481);
     unittest::log() << "### test seed: " << seed;
     init();
     auto configVersion = 2;
@@ -993,7 +993,7 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     getReplCoord2()->setMyLastDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(1)});
 
     auto targetTime = getReplCoord()->getElectionTimeout_forTest();
-    targetTime = targetTime + Seconds(600 * 10);  // run for 10 mins of virtual time.
+    targetTime = targetTime + Seconds(10000 * 10);  // run for 10 mins of virtual time.
     unittest::log() << "### Trying to simulate election at: " << targetTime;
     bool hasReadyRequests = true;
 

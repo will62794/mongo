@@ -2916,7 +2916,12 @@ void TopologyCoordinator::processReplSetRequestVotes(const ReplSetRequestVotesAr
         return;
     }
 
-    if (args.getTerm() < _term) {
+    // If we're removed, don't cast vote.
+    if(_selfIndex == -1){
+        response->setVoteGranted(false);
+        response->setReason(str::stream() << "we are REMOVED. not voting.");
+    }
+    else if (args.getTerm() < _term) {
         response->setVoteGranted(false);
         response->setReason(str::stream() << "candidate's term ({}) is lower than mine ({})"_format(
                                 args.getTerm(), _term));
