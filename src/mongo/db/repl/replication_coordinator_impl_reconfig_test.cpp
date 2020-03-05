@@ -902,7 +902,7 @@ public:
             auto hst = targetReplCoord->processHeartbeatV1(hbArgs, &res);
             BSONObjBuilder respObj;
             res.addToBSON(&respObj);
-            if (rand() % 4 == 0) {
+            if (rand() % 2 == 0) {
                 // Randomly drop some heartbeats.
                 net->blackHole(noi);
             } else {
@@ -993,7 +993,7 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
     getReplCoord2()->setMyLastDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(1)});
 
     auto targetTime = getReplCoord()->getElectionTimeout_forTest();
-    targetTime = targetTime + Seconds(10000 * 10);  // run for 10 mins of virtual time.
+    targetTime = targetTime + Seconds(60 * 10);  // run for 10 mins of virtual time.
     unittest::log() << "### Trying to simulate election at: " << targetTime;
     bool hasReadyRequests = true;
 
@@ -1058,18 +1058,18 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
                     node = i + 1;
                 }
             }
-            if (coord->getMemberState().primary()) {
-                BSONObjBuilder res;
-                ReplSetReconfigArgs args;
-                args.force = false;
-                auto configVersion = coord->getConfig().getConfigVersion();
-                args.newConfigObj = configWithMembers(configVersion + 1, randomMembers(node));
-                auto tempCtx = makeOperationContext();
-                unittest::log() << "### Fixture running a reconfig against node: " << node;
-                auto st = coord->processReplSetReconfig(tempCtx.get(), args, &res);
-                unittest::log() << "### Fixture reconfig status: " << st.toString()
-                                << ", response:" << res.obj();
-            }
+//            if (coord->getMemberState().primary()) {
+//                BSONObjBuilder res;
+//                ReplSetReconfigArgs args;
+//                args.force = false;
+//                auto configVersion = coord->getConfig().getConfigVersion();
+//                args.newConfigObj = configWithMembers(configVersion + 1, randomMembers(node));
+//                auto tempCtx = makeOperationContext();
+//                unittest::log() << "### Fixture running a reconfig against node: " << node;
+//                auto st = coord->processReplSetReconfig(tempCtx.get(), args, &res);
+//                unittest::log() << "### Fixture reconfig status: " << st.toString()
+//                                << ", response:" << res.obj();
+//            }
         }
 
         // Check invariants.
@@ -1079,7 +1079,10 @@ TEST_F(ReplCoordReconfigSimulationTest, DummyTest) {
                     auto twoPrimariesInSameTerm = replCoords[i]->getMemberState().primary() &&
                         replCoords[j]->getMemberState().primary() &&
                         (replCoords[i]->getTerm() == replCoords[j]->getTerm());
+                    auto twoPrimaries = replCoords[i]->getMemberState().primary() &&
+                              replCoords[j]->getMemberState().primary();
                     ASSERT_FALSE(twoPrimariesInSameTerm);
+                    ASSERT_FALSE(twoPrimaries);
                 }
             }
         }

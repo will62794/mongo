@@ -3787,6 +3787,11 @@ ReplicationCoordinatorImpl::_setCurrentRSConfig(WithLock lk,
                   {logv2::LogTag::kRS},
                   "New replica set config in use: {rsConfig}",
                   "rsConfig"_attr = _rsConfig.toBSON());
+
+    LOGV2_DEBUG(2139211,
+                  "config member count: {members}",
+                  "members"_attr = _rsConfig.members().size());
+
     _selfIndex = myIndex;
     if (_selfIndex >= 0) {
         LOGV2(21393,
