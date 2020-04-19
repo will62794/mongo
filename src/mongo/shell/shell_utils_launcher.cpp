@@ -279,7 +279,7 @@ ProgramRunner::ProgramRunner(const BSONObj& args, const BSONObj& env, bool isMon
 
     string prefix("mongod-");
     bool isMongodProgram = isMongo &&
-        (string("mongod") == programName ||
+        (string("mongod") == programName || string("live-record") == programName ||
          programName.string().compare(0, prefix.size(), prefix) == 0);
     prefix = "mongos-";
     bool isMongosProgram = isMongo &&
