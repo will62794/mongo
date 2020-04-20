@@ -47,6 +47,22 @@ continue
 end
 """
 
+#
+# Add after explanation.
+#
+rbp = gdb.Breakpoint("updateStatsAfterRepair")
+rbp.commands  = """silent
+if $_streq(_ns.c_str(), "test.prepare_counts")
+    printf "namespace: %s\\n", _ns.c_str()
+    printf "current count: %ld, new: %ld\\n", _sizeInfo->numRecords.load(), numRecords
+    bt 8
+    uinfo time
+    printf "\\n"
+else
+end
+continue
+"""
+
 # Run the recorded execution.
 gdb.execute("continue")
 gdb.execute("set logging off")
