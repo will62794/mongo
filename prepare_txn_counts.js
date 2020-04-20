@@ -19,8 +19,8 @@ const session = primary.startSession({causalConsistency: false});
 const sessionDB = session.getDatabase(dbName);
 const sessionColl = sessionDB.getCollection(collName);
 
-jsTestLog("Inserting 9 documents");
-for(var i=0;i<9;i++){
+jsTestLog("Inserting 4 documents");
+for(var i=0;i<4;i++){
     assert.commandWorked(primary.getDB(dbName).getCollection(collName).insert({x:i}));
 }
 
