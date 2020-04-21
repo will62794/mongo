@@ -22,58 +22,58 @@ gdb.execute("set logging on")
 nss = "test.coll1"
 
 # Set breakpoint on when we increment the number of records on a collection (record store).
-incbp = gdb.Breakpoint("_changeNumRecords")
-incbp.commands  = """silent
-if $_streq(_ns.c_str(), "{0}")
-    printf "namespace: %s\\n", _ns.c_str()
-    printf "current count: %ld, diff: +%ld, new: %ld\\n", _sizeInfo->numRecords.load(), diff, (_sizeInfo->numRecords.load()+diff)
-    bt 8
-    uinfo time
-    printf "\\n"
-else
-end
-continue
-""".format(nss)
+class SizeStorerIncBreakpoint(gdb.Breakpoint):
+    # Commands to execute when the breakpoint is hit.
+    def stop (self):
+        if bool(gdb.parse_and_eval('$_streq(_ns.c_str(), "%s")' % nss)):
+            gdb.execute('printf "namespace: %s\\n", _ns.c_str()')
+            gdb.execute('printf "current count: %ld, diff: +%ld\\n", _sizeInfo->numRecords.load(), diff')
+            gdb.execute('printf "new count: %ld\\n", (_sizeInfo->numRecords.load()+diff)')
+            gdb.execute("bt 8")
+            gdb.execute("uinfo time")
+            print("")
+        # Continue automatically.
+        return False
+
+# Enable the breakpoint.       
+SizeStorerIncBreakpoint("_changeNumRecords")
 
 # Set breakpoint on when we decrement the number of records on a collection (record store).
-decbp = gdb.Breakpoint("WiredTigerRecordStore::NumRecordsChange::rollback")
-decbp.commands = """silent
-if $_streq(_rs->_ns.c_str(), "{0}")
-    printf "namespace: %s\\n", _rs->_ns.c_str()
-    printf "current count: %ld, diff: -%ld, new: %ld\\n", _rs->_sizeInfo->numRecords.load(), _diff, (_rs->_sizeInfo->numRecords.load()-_diff)
-    bt 8
-    uinfo time
-    printf "\\n"
-else
-end
-continue
-end
-""".format(nss)
+class SizeStorerDecBreakpoint(gdb.Breakpoint):
+    # Commands to execute when the breakpoint is hit.
+    def stop (self):
+        if bool(gdb.parse_and_eval('$_streq(_rs->_ns.c_str(), "%s")' % nss)):
+            gdb.execute('printf "namespace: %s\\n", _rs->_ns.c_str()')
+            gdb.execute('printf "current count: %ld, diff: -%ld\\n", _rs->_sizeInfo->numRecords.load(), _diff')
+            gdb.execute('printf "new count: %ld\\n", (_rs->_sizeInfo->numRecords.load()-_diff)')
+            gdb.execute("bt 8")
+            gdb.execute("uinfo time")
+            print("")
+        # Continue automatically.
+        return False
+
+# Enable the breakpoint.       
+SizeStorerDecBreakpoint("WiredTigerRecordStore::NumRecordsChange::rollback")
 
 #
 # Add after explanation.
 #
-rbp = gdb.Breakpoint("updateStatsAfterRepair")
-rbp.commands  = """silent
-if $_streq(_ns.c_str(), "{0}")
-    printf "namespace: %s\\n", _ns.c_str()
-    printf "current count: %ld, new: %ld\\n", _sizeInfo->numRecords.load(), numRecords
-    bt 8
-    uinfo time
-    printf "\\n"
-else
-end
-continue
-""".format(nss)
+class SizeStorerRepairBreakpoint(gdb.Breakpoint):
+    # Commands to execute when the breakpoint is hit.
+    def stop (self):
+        if bool(gdb.parse_and_eval('$_streq(_ns.c_str(), "%s")' % nss)):
+            gdb.execute('printf "namespace: %s\\n", _ns.c_str()')
+            gdb.execute('printf "current count: %ld\\n", _sizeInfo->numRecords.load()')
+            gdb.execute('printf "new count: %ld\\n",numRecords')
+            gdb.execute("bt 8")
+            gdb.execute("uinfo time")
+            print("")
+        # Continue automatically.
+        return False
+
+# Enable the breakpoint.       
+SizeStorerRepairBreakpoint("updateStatsAfterRepair")
 
 # Run the recorded execution.
 gdb.execute("continue")
 gdb.execute("set logging off")
-
-# class SizeStorerBreakpoint(gdb.Breakpoint):
-#     def stop (self):
-#         gdb.write('MyBreakpoint\n')
-#         # Continue automatically.
-#         return False
-#         # Actually stop.
-#         return True
