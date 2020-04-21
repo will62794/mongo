@@ -69,3 +69,11 @@ continue
 # Run the recorded execution.
 gdb.execute("continue")
 gdb.execute("set logging off")
+
+# class SizeStorerBreakpoint(gdb.Breakpoint):
+#     def stop (self):
+#         gdb.write('MyBreakpoint\n')
+#         # Continue automatically.
+#         return False
+#         # Actually stop.
+#         return True
