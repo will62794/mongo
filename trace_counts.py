@@ -5,9 +5,6 @@ import gdb
 # Trace sizeStorer updates via breakpoints on method calls.
 #
 
-# Go to the start of the program.
-gdb.execute("ugo start")
-
 # Delete all breakpoints.
 gdb.execute("delete")
 
@@ -34,7 +31,7 @@ class SizeStorerIncBreakpoint(gdb.Breakpoint):
             gdb.execute('printf "namespace: %s\\n", _ns.c_str()')
             gdb.execute('printf "current count: %ld, diff: +%ld\\n", _sizeInfo->numRecords.load(), diff')
             gdb.execute('printf "new count: %ld\\n", (_sizeInfo->numRecords.load()+diff)')
-            gdb.execute("bt 8")
+            gdb.execute("bt 6")
             gdb.execute("uinfo time")
             print("")
         # Continue automatically.
@@ -51,7 +48,7 @@ class SizeStorerDecBreakpoint(gdb.Breakpoint):
             gdb.execute('printf "namespace: %s\\n", _rs->_ns.c_str()')
             gdb.execute('printf "current count: %ld, diff: -%ld\\n", _rs->_sizeInfo->numRecords.load(), _diff')
             gdb.execute('printf "new count: %ld\\n", (_rs->_sizeInfo->numRecords.load()-_diff)')
-            gdb.execute("bt 8")
+            gdb.execute("bt 6")
             gdb.execute("uinfo time")
             print("")
         # Continue automatically.
@@ -59,6 +56,14 @@ class SizeStorerDecBreakpoint(gdb.Breakpoint):
 
 # Enable the breakpoint.       
 SizeStorerDecBreakpoint("WiredTigerRecordStore::NumRecordsChange::rollback")
+
+
+# Go to the start of the program and then run the recorded execution.
+gdb.execute("ugo start")
+gdb.execute("continue")
+gdb.execute("set logging off")
+
+
 
 # #
 # # Add after explanation.
@@ -78,7 +83,3 @@ SizeStorerDecBreakpoint("WiredTigerRecordStore::NumRecordsChange::rollback")
 
 # # Enable the breakpoint.       
 # SizeStorerRepairBreakpoint("updateStatsAfterRepair")
-
-# Run the recorded execution.
-gdb.execute("continue")
-gdb.execute("set logging off")
