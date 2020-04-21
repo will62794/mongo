@@ -2426,8 +2426,6 @@ var ReplSetTest = function(opts) {
 
         this.stop(n, signal, options, {forRestart: true});
 
-        sleep(10*1000);
-
         var started = this.start(n, options, true, wait);
 
         if (jsTestOptions().keyFile) {
