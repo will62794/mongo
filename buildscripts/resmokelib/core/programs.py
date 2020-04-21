@@ -243,6 +243,7 @@ def mongo_shell_program(  # pylint: disable=too-many-branches,too-many-locals,to
         "storageEngineCacheSizeGB": (config.STORAGE_ENGINE_CACHE_SIZE, ""),
         "testName": (test_name, ""),
         "transportLayer": (config.TRANSPORT_LAYER, ""),
+        "liveRecord": (config.LIVE_RECORD, False),
         "wiredTigerCollectionConfigString": (config.WT_COLL_CONFIG, ""),
         "wiredTigerEngineConfigString": (config.WT_ENGINE_CONFIG, ""),
         "wiredTigerIndexConfigString": (config.WT_INDEX_CONFIG, ""),

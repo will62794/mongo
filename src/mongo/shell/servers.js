@@ -1231,7 +1231,7 @@ MongoRunner._startWithArgs = function(argArray, env, waitForConnect) {
     var port = _parsePort.apply(null, argArray);
     var pid = -1;
 
-    if(argArray[0] === "mongod"){
+    if(argArray[0] === "mongod" && TestData.liveRecord === true){
         jsTestLog("Starting mongod under live-record");
         argArray = ["live-record"].concat(argArray);
         jsTestLog(tojson(argArray));

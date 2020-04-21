@@ -70,6 +70,9 @@ def _make_parser():  # pylint: disable=too-many-statements
     parser.add_option("--continueOnFailure", action="store_true", dest="continue_on_failure",
                       help="Executes all tests in all suites, even if some of them fail.")
 
+    parser.add_option("--liveRecord", action="store_true", dest="live_record",
+                      help="Enable live recorder.")
+
     parser.add_option(
         "--dbpathPrefix", dest="dbpath_prefix", metavar="PATH",
         help=("The directory which will contain the dbpaths of any mongod's started"
@@ -573,6 +576,7 @@ def _update_config_vars(values):  # pylint: disable=too-many-statements
     _config.EXCLUDE_WITH_ANY_TAGS.extend(
         utils.default_if_none(_tags_from_list(config.pop("exclude_with_any_tags")), []))
     _config.FAIL_FAST = not config.pop("continue_on_failure")
+    _config.LIVE_RECORD = config.pop("live_record")
     _config.FLOW_CONTROL = config.pop("flow_control")
     _config.FLOW_CONTROL_TICKETS = config.pop("flow_control_tickets")
     _config.INCLUDE_WITH_ANY_TAGS = _tags_from_list(config.pop("include_with_any_tags"))

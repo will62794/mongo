@@ -50,6 +50,7 @@ DEFAULTS = {
     "benchrun_report_root": "benchrun_embedded/results",
     "buildlogger_url": "https://logkeeper.mongodb.org",
     "continue_on_failure": False,
+    "live_record": False,
     "dbpath_prefix": None,
     "dbtest_executable": None,
     "dry_run": None,
