@@ -1,0 +1,16 @@
+
+Overview
+
+- Overview of UndoDB and LiveRecorder and how I integrated it into the shell for these tests
+- Mention overhead of running with/without the recorder for this test run. 
+
+Debugging a Build Failure
+
+- BF-15552 seemed a good case study for using LiveRecorder to debug a BF. Using a simplified version 
+of the original rollback fuzzer failure for demonstration purposes. Assuming that in production
+we would have recorded the original failure and been able to debug it using the recorder.
+- We can run the test under LiveRecorder and see the 2 recordings it produces.
+
+Using UDB to Inspect a recording
+
+TODO
