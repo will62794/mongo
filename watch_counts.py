@@ -32,9 +32,8 @@ class SizeStorerBreakpoint(gdb.Breakpoint):
             # Set a hardware watchpoint for future updates.
             gdb.execute('set $addr1 = &(_sizeInfo->numRecords._value._M_i)')
             gdb.execute('watch *$addr1')
-            gdb.execute("bt 8")
             gdb.execute("uinfo time")
-            print("")
+            print("*** Set hardware watchpoint on the size storer ***")
             return True
         # Don't continue automatically.
         return False
@@ -44,6 +43,5 @@ SizeStorerBreakpoint("_changeNumRecords", temporary=True)
 
 # Run the recorded execution until we hit the breakpoint which will set the watchpoint.
 gdb.execute("continue")
-gdb.execute("bt 8")
 
 # At this point we can manually run 'continue' to inspect each location at which we hit the watchpoint.
