@@ -39,9 +39,12 @@ class SizeStorerBreakpoint(gdb.Breakpoint):
         return False
 
 # Enable the breakpoint.       
-SizeStorerBreakpoint("_changeNumRecords", temporary=True)
+bp = SizeStorerBreakpoint("_changeNumRecords", temporary=False)
 
-# Run the recorded execution until we hit the breakpoint which will set the watchpoint.
+# Run the recorded execution until we hit the breakpoint which will set the watchpoint. 
 gdb.execute("continue")
+
+# Now disable the breakpoint so we only hit the watchpoint.
+bp.enabled = False
 
 # At this point we can manually run 'continue' to inspect each location at which we hit the watchpoint.
