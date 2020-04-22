@@ -29,8 +29,8 @@ you need.
 
 We want to work backwards from the unexpected fast count value. First, we can try to understand where exactly that value
 came from. Fast count checks come from the 'count' command, so we can set a breakpoint on the command code. The `udb/trace_count_cmd.py` script will set these breakpoints and print out the namespace the command is running on. We can
-keep continuing until we find the namespace we are interested in. We can then set a breakpoint on CollectionImpl::numRecords,
-since we expect that is where fast count will call into, and continue to that point. We can print out `_recordStore->numRecords(opCtx)` to verify the value matches the fast count we saw returned in the JS test failure.
+keep continuing until we find the namespace we are interested in. We can then set a breakpoint on `CollectionImpl::numRecords`,
+since we expect that is where fast count will call into, and continue to that point. We can print out `_recordStore->numRecords(opCtx)` to verify the value matches the fast count we saw returned in the JS test failure. And to do make sure that is actually the value that is returned by the command, we can set a breakpoint on the line right before return (`count_cmd.cpp:260`) and print the value of `countStats->nCounted` to make sure.
 
 Now that we have verified where the value came from, we want to see how the value got to its current value. We can load the recording of the node pre shutdown and see how that value changed over time.
 
