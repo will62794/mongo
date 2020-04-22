@@ -24,9 +24,10 @@ gdb.execute("set logging on")
 class CountCmdBreakpoint(gdb.Breakpoint):
     # Commands to execute when the breakpoint is hit.
     def stop (self):
+        print("-----" * 10)
         gdb.execute('print nss')
         gdb.execute("uinfo time")
-        print("")
+        print("-----" * 10)
         # Don't continue automatically.
         return True
 
