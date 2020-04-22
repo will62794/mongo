@@ -16,6 +16,7 @@ gdb.execute("set print frame-arguments none")
 gdb.execute("set pagination off")
 gdb.execute("set logging overwrite on")
 gdb.execute("set logging off")
+gdb.execute("set logging file gdb_watch_counts.txt")
 gdb.execute("set logging on")
 
 # The collection whose counts we want to inspect.
