@@ -1,16 +1,47 @@
 
-Overview
+#############################################
+# Overview
+#############################################
 
-- Overview of UndoDB and LiveRecorder and how I integrated it into the shell for these tests
-- Mention overhead of running with/without the recorder for this test run. 
+Give an overview of UndoDB and LiveRecorder and how I integrated it into the shell for these tests. I added
+a modification to `servers.js` in the mongo shell to prepend the program arguments that start a mongod with `live-record`.
+This worked well enough. For tests that do clean shutdowns we save a recording on shut down and start up a new recording
+after restart. In tests that SIGKILL nodes, live recorder didn't seem to work correctly. We can also look at overhead of running
+the test with/without live-record. It's definitely slower under live recorder, but a lot of that time seems to be in the time
+it takes to actually save the recording, not actually slowing down mongod execution time, but not sure.
 
-Debugging a Build Failure
+#############################################
+# Debugging a Build Failure
+#############################################
 
-- BF-15552 seemed a good case study for using LiveRecorder to debug a BF. Using a simplified version 
+BF-15552 seemed a good case study for using LiveRecorder to debug a BF. Using a simplified version 
 of the original rollback fuzzer failure for demonstration purposes. Assuming that in production
 we would have recorded the original failure and been able to debug it using the recorder.
-- We can run the test under LiveRecorder and see the 2 recordings it produces.
 
-Using UDB to Inspect a recording
+No core dump. Even with data files you can't reconstruct the history of how we arrived at the end state. 
+We can run the test under LiveRecorder and see the 2 recordings it produces.
 
-TODO
+command:
+resmokeram --liveRecord --suites=replica_sets --basePort=34000 counts_mismatch.js
+
+############################################
+# Using UDB to Inspect a recording
+#############################################
+
+A debugging approach I found most effective is a bit different to standard GDB debugging mode of stepping forwards and backwards.
+Instead, I find it clearer to ask questions about the whole execution and then write a script to answer that question
+by running the recording and logging the state I'm interested in. It's like building your own log with exactly the info
+you need.
+
+We want to work backwards from the unexpected fast count value. First, we can try to understand where exactly that value
+came from. Fast count checks come from the 'count' command, so we can set a breakpoint on the command code. The `udb/trace_count_cmd.py` script will set these breakpoints and print out the namespace the command is running on. We can
+keep continuing until we find the namespace we are interested in. We can then set a breakpoint on CollectionImpl::numRecords,
+since we expect that is where fast count will call into, and continue to that point. We can print out `_recordStore->numRecords(opCtx)` to verify the value matches the fast count we saw returned in the JS test failure.
+
+Now that we have verified where the value came from, we want to see how the value got to its current value. We can load the recording of the node pre shutdown and see how that value changed over time.
+
+We know that we're interested in the value of `_sizeInfo->numRecords` inside WiredTigerRecordStore, so we can first try to inspect the code there a bit and see if we can set breakpoints on the interesting methods that update this value. From initial inspection, we can see `WiredTigerRecordStore::_changeNumRecords` and the `WiredTigerRecordStore::NumRecordsChange::rollback` increment and decrement the counts, respectively. We can set breakpoints on those methods and print out the count information at each of those breakpoints. The `udb/trace_counts.py` script does this. If we run it we will get a trace of the counts output to `gdb_trace_counts.txt`. From this trace we can see each time the count was updated and we also get the event time of each breakpoint, so we can jump to that point in the execution and dig deeper if we want to with `ugo time <TIME>`. We can also see, for example the events where the counts are decremented due to a 'rollback'. If we jump to this location in the execution, we can see more clearly that this is the result of a shutdown that is aborting a transaction.
+
+When we look at the trace counts log, we note that things increment as expected, but there is a missing gap where the counts decreased unexpectedly for no apparent reason. It seems we must be missing some update to the counts in our recorded breakpoint log. We could try to go back to the WiredTigerRecordStore and see if we missed some locations where the counts are updated, but we can also try a different approach that should be more robust: set a hardware watchpoint on the 'numRecords' count itself for the record store we are interested in. We can do this with the `watch_counts.py` script. This script sets a temporary breakpoint on `_changeNumRecords`, and on the first time it's hit it sets a hardware watch point on the memory location where the 'numRecords' is held. We can now continue and see the value change each time and try to catch the point where it decreases unexpectedly. If we do this we see the single increments, and then we see the double decrement i.e. the count decreases by 2. Now that we caught it, we can inspect it via the backtrace. From the backtrace, we can see that this is being executed by the validate command. It is setting the record store count from 8 to 6. So now that gives us an explanation of why the fast count is 6 here. If we continue to see the further updates, we can see two additional decrements as the result of a transaction being aborted on shutdown. This leaves the fast count at 4, when we expect that the actual count is 6, since that is what the validate call told us. We can verify all of the inserts that occurred by running the `udb/trace_inserts.py` script.
+
+So, the history of events seems to be that we insert 8 documents, reaching a fast count of 8, then we run a validate command which sets the fast count to 6, and then we shutdown and abort a transaction which decrements the fast count back to 4, leaving us with 6 documents in the record store but a fast count of 4. So, it seems there is a kind of concurrency/isolation problem here. When the validate command runs, it doesn't seem to account for the documents in the transaction. But then, after this occurs, the transactions decrement the count assuming their original increments were still there. If we look into the validate codepath we can try to verify this. Let's go back to our `watch_counts.py` script to find the position of the validate call in the execution.
