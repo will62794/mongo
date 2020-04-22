@@ -1,7 +1,5 @@
 
-#############################################
-# Overview
-#############################################
+## Overview
 
 Give an overview of UndoDB and LiveRecorder and how I integrated it into the shell for these tests. I added
 a modification to `servers.js` in the mongo shell to prepend the program arguments that start a mongod with `live-record`.
@@ -10,9 +8,7 @@ after restart. In tests that SIGKILL nodes, live recorder didn't seem to work co
 the test with/without live-record. It's definitely slower under live recorder, but a lot of that time seems to be in the time
 it takes to actually save the recording, not actually slowing down mongod execution time, but not sure.
 
-#############################################
-# Debugging a Build Failure
-#############################################
+## Debugging a Build Failure
 
 BF-15552 seemed a good case study for using LiveRecorder to debug a BF. Using a simplified version 
 of the original rollback fuzzer failure for demonstration purposes. Assuming that in production
@@ -24,9 +20,7 @@ We can run the test under LiveRecorder and see the 2 recordings it produces.
 command:
 resmokeram --liveRecord --suites=replica_sets --basePort=34000 counts_mismatch.js
 
-############################################
-# Using UDB to Inspect a recording
-#############################################
+## Using UDB to Inspect a recording
 
 A debugging approach I found most effective is a bit different to standard GDB debugging mode of stepping forwards and backwards.
 Instead, I find it clearer to ask questions about the whole execution and then write a script to answer that question
