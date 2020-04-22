@@ -4,9 +4,6 @@ import gdb
 # Trace sizeStorer updates via hardware watchpoints.
 #
 
-# Go to the start of the program.
-gdb.execute("ugo start")
-
 # Delete all breakpoints.
 gdb.execute("delete")
 
@@ -40,6 +37,9 @@ class SizeStorerBreakpoint(gdb.Breakpoint):
 
 # Enable the breakpoint.       
 bp = SizeStorerBreakpoint("_changeNumRecords")
+
+# Go to the start of the program.
+gdb.execute("ugo start")
 
 # Run the recorded execution until we hit the breakpoint which will set the watchpoint. 
 gdb.execute("continue")
