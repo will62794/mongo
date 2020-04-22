@@ -2,7 +2,7 @@
 import gdb
 
 #
-# Trace sizeStorer updates via breakpoints on method calls.
+# Trace calls to the 'count' command.
 #
 
 # Delete all breakpoints.
