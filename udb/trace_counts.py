@@ -62,24 +62,3 @@ SizeStorerDecBreakpoint("WiredTigerRecordStore::NumRecordsChange::rollback")
 gdb.execute("ugo start")
 gdb.execute("continue")
 gdb.execute("set logging off")
-
-
-
-# #
-# # Add after explanation.
-# #
-# class SizeStorerRepairBreakpoint(gdb.Breakpoint):
-#     # Commands to execute when the breakpoint is hit.
-#     def stop (self):
-#         if bool(gdb.parse_and_eval('$_streq(_ns.c_str(), "%s")' % nss)):
-#             gdb.execute('printf "namespace: %s\\n", _ns.c_str()')
-#             gdb.execute('printf "current count: %ld\\n", _sizeInfo->numRecords.load()')
-#             gdb.execute('printf "new count: %ld\\n",numRecords')
-#             gdb.execute("bt 8")
-#             gdb.execute("uinfo time")
-#             print("")
-#         # Continue automatically.
-#         return False
-
-# # Enable the breakpoint.       
-# SizeStorerRepairBreakpoint("updateStatsAfterRepair")
