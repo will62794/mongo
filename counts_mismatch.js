@@ -39,41 +39,40 @@ assert.commandWorked(primary.getDB(dbName).getCollection(collName1).insert({x:1}
 assert.commandWorked(primary.getDB(dbName).getCollection(collName2).insert({x:2}));
 assert.commandWorked(primary.getDB(dbName).getCollection(collName2).insert({x:3}));
 assert.commandWorked(primary.getDB(dbName).getCollection(collName2).remove({x:2}));
-assert.commandWorked(primary.getDB(dbName).getCollection(collName1).insert({x:4}));
-assert.commandWorked(primary.getDB(dbName).getCollection(collName1).update({x:1}, {$set: {y:6}}));
 assert.commandWorked(primary.getDB(dbName).getCollection(collName1).insert({x:3}));
+assert.commandWorked(primary.getDB(dbName).getCollection(collName1).update({x:1}, {$set: {y:6}}));
+assert.commandWorked(primary.getDB(dbName).getCollection(collName1).insert({x:4}));
 
 //
 // Do some transaction operations.
 //
 session2.startTransaction();
 var txnNum = session2.getTxnNumber_forTesting();
-assert.commandWorked(session2Coll.insert({_id:1}));
-assert.commandWorked(session2Coll.insert({_id:2}));
+assert.commandWorked(session2Coll.insert({x:11}));
+assert.commandWorked(session2Coll.insert({x:22}));
 session2.commitTransaction();
 
 session1.startTransaction();
 var txnNum = session1.getTxnNumber_forTesting();
-assert.commandWorked(session1Coll.insert({_id:32}));
-assert.commandWorked(session1Coll.insert({_id:33}));
+assert.commandWorked(session1Coll.insert({x:32}));
+assert.commandWorked(session1Coll.insert({x:33}));
 PrepareHelpers.prepareTransaction(session1);
 
 //
 // Do some more operations.
-assert.commandWorked(primary.getDB(dbName).getCollection(collName1).insert({x:4}));
-assert.commandWorked(primary.getDB(dbName).getCollection(collName1).update({x:4}, {$set: {x:6}}));
-assert.commandWorked(primary.getDB(dbName).getCollection(collName1).insert({x:3}));
-assert.commandWorked(primary.getDB(dbName).getCollection(collName1).insert({x:4}));
+assert.commandWorked(primary.getDB(dbName).getCollection(collName1).insert({x:5}));
+assert.commandWorked(primary.getDB(dbName).getCollection(collName1).insert({x:6}));
+assert.commandWorked(primary.getDB(dbName).getCollection(collName1).insert({x:7}));
 
 //
 // Do some more transaction operations.
 //
 session2.startTransaction();
 var txnNum = session2.getTxnNumber_forTesting();
-assert.commandWorked(session2Coll.insert({_id:4}));
-assert.commandWorked(session2Coll.insert({_id:5}));
-assert.commandWorked(session2Coll.insert({_id:6}));
-assert.commandWorked(session2Coll.insert({_id:7}));
+assert.commandWorked(session2Coll.insert({x:44}));
+assert.commandWorked(session2Coll.insert({x:55}));
+assert.commandWorked(session2Coll.insert({x:66}));
+assert.commandWorked(session2Coll.insert({x:77}));
 session2.abortTransaction();
 
 //
