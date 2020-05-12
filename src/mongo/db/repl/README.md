@@ -1476,6 +1476,40 @@ flag and tell the storage engine that the [`initialDataTimestamp`](#replication-
 is the node's last applied OpTime. Finally, the `InitialSyncer` shuts down and the
 `ReplicationCoordinator` starts steady state replication.
 
+# Reconfiguration
+
+A MongoDB replica set consists of some set of nodes, where a node corresponds to a single mongod
+server process running on some host and port. A set of nodes along with some global settings for the
+replica set is referred to as a *configuration*. When the nodes of a replica set are first started,
+the set must be initiated with some initial configuration, which is done by running the
+`replSetInitiate` command against some node of the replica set. When processing an initiate command,
+a node validates and installs the requested config and then establishes connections to and begins
+sending heartbeats to the other nodes of the replica set contained in the config it installed.
+Configurations are propagated between nodes via heartbeats, and configurations are assigned a
+numeric *version* and *term* that act as a means to establish an ordering between different
+configurations. Config's are compared based on their (term, version) pair. If their terms are the
+same, then they compared based on version, otherwise the config with the greater term is considered
+newer. This is analogous to the comparision rule used for optimes, if we view config *version* as
+the analogue of an optime *timestamp*.
+
+To install a new configuration, a client executes a `replSetReconfig` command with the new, desired
+config. Reconfigurations can be run in *safe* mode or in *force* mode, Safe reconfigs can only be
+run against primary nodes, and they enforce stronger safety constraints. Force reconfigs can be run
+against either a primary or secondary node and they are unsafe in the sense that their usage may
+cause the roll back of majority committed writes, or cause two leaders to be elected in the same
+term. Although force reconfigs are fundamentally unsafe, they exist to allow users to salvage or
+repair a replica set where a majority of nodes are no longer operational.
+
+## Safe Reconfig Protocol
+
+The safe, non-force reconfig protocol implemented in MongoDB bears similarities to the
+"single-server" reconfiguration protocol described Section 4 of the Raft [PhD
+thesis](https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf) but differs in a few ways. As
+mentioned above, each replica set configuration is identified with a (term,version) pair. Whenever a
+reconfig occurs, the *version* of the new configuration must be higher than the current
+configuration. Similarly, the *term* of a configuration is the term of the primary that created that
+config.
+
 # Startup Recovery
 
 **Startup recovery** is a node's process for putting both the oplog and data into a consistent state
