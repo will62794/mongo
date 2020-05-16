@@ -40,6 +40,7 @@
 #include "mongo/platform/mutex.h"
 #include "mongo/logv2/log.h"
 #include "mongo/stdx/thread.h"
+#include "mongo/platform/random.h"
 
 #include "mongo/unittest/unittest.h"
 
@@ -49,22 +50,25 @@ using namespace mongo;
 TEST(BSONObj, threads) {
     Mutex lock = MONGO_MAKE_LATCH("mymutex");
     std::vector<int> history;
-    int iters = 100;
+    int iters = 5;
 
-    // Start two threads that each push a value to a history vector inside a critical section some
+
+// Start two threads that each push a value to a history vector inside a critical section some
     // number of times. The end state of the vector represents the interleaving of the two threads
     // for that execution.
     stdx::thread t1 = stdx::thread([&] {
-        mongo::sleepmillis(100);
+        PseudoRandom rand((unsigned)curTimeMicros64());
         for (int i = 0; i < iters; i++) {
+            mongo::sleepmillis(rand.nextInt64(8));
             lock.lock();
             history.push_back(1);
             lock.unlock();
         }
     });
     stdx::thread t2 = stdx::thread([&] {
-        mongo::sleepmillis(100);
+        PseudoRandom rand((unsigned)curTimeMicros64());
         for (int i = 0; i < iters; i++) {
+            mongo::sleepmillis(rand.nextInt64(8));
             lock.lock();
             history.push_back(2);
             lock.unlock();
