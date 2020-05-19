@@ -32,6 +32,8 @@
 #include <memory>
 #include <type_traits>
 #include <vector>
+#include <thread>
+#include <set>
 
 #include "boost/optional.hpp"
 
@@ -350,6 +352,13 @@ private:
 
     stdx::mutex _mutex;  // NOLINT
     bool _isLocked = false;
+//    AtomicWord<int> _numWaiters{0};
+    std::set<std::thread::id> _waiters;
+    std::mutex _internalMutex;
+
+    // The set of threads now allowed to proceed.
+    std::set<std::thread::id> _allowedToProceed;
+
 };
 }  // namespace latch_detail
 

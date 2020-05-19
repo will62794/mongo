@@ -47,29 +47,28 @@
 namespace {
 using namespace mongo;
 
+
 TEST(BSONObj, threads) {
-    Mutex lock = MONGO_MAKE_LATCH("mymutex");
+    Mutex lock = MONGO_MAKE_LATCH("interleavemutex");
     std::vector<int> history;
     int iters = 5;
 
 
-// Start two threads that each push a value to a history vector inside a critical section some
+    // Start two threads that each push a value to a history vector inside a critical section some
     // number of times. The end state of the vector represents the interleaving of the two threads
     // for that execution.
     stdx::thread t1 = stdx::thread([&] {
-        PseudoRandom rand((unsigned)curTimeMicros64());
         for (int i = 0; i < iters; i++) {
-            mongo::sleepmillis(rand.nextInt64(8));
             lock.lock();
+            logd("t1 pushing 1");
             history.push_back(1);
             lock.unlock();
         }
     });
     stdx::thread t2 = stdx::thread([&] {
-        PseudoRandom rand((unsigned)curTimeMicros64());
         for (int i = 0; i < iters; i++) {
-            mongo::sleepmillis(rand.nextInt64(8));
             lock.lock();
+            logd("t2 pushing 2");
             history.push_back(2);
             lock.unlock();
         }

@@ -27,13 +27,17 @@
  *    it in the license file.
  */
 
+#define MONGO_LOGV2_DEFAULT_COMPONENT ::mongo::logv2::LogComponent::kControl
+
 #include "mongo/platform/mutex.h"
 
 #include "mongo/base/init.h"
+#include "mongo/util/time_support.h"
+#include "mongo/logv2/log.h"
 
 namespace mongo::latch_detail {
 
-Mutex::Mutex(std::shared_ptr<Data> data) : _data{std::move(data)} {
+Mutex::Mutex(std::shared_ptr<Data> data) : _data{std::move(data)}, _waiters{}, _allowedToProceed{} {
     invariant(_data);
 
     _data->counts().created.fetchAndAdd(1);
@@ -46,6 +50,48 @@ Mutex::~Mutex() {
 }
 
 void Mutex::lock() {
+    // Only order the mutex we care about.
+    if(getName() == "interleavemutex"){
+        // Mark yourself as a waiter on this mutex.
+        _internalMutex.lock();
+        _waiters.insert(std::this_thread::get_id());
+        _internalMutex.unlock();
+
+        // Wait until all threads have reached this barrier.
+        int numThreads = 2;
+        while(true){
+            _internalMutex.lock();
+            if(_waiters.size()==numThreads){
+                _internalMutex.unlock();
+                break;
+            }
+            _internalMutex.unlock();
+            mongo::sleepmillis(2);
+        }
+
+        logd("2 threads now waiting on mutex.");
+
+        // Now that we know all threads have reached this barrier, we pick one of the waiting threads to
+        // acquire the mutex. If we are the next allowed thread, don't sleep. Otherwise, sleep for
+        // a short period of time and then proceed to grab the mutex.
+//        while(true){
+//            _internalMutex.lock();
+//            // If we are now allowed to proceed, then proceed to acquire the mutex.
+//            if(_allowedToProceed.find(std::this_thread::get_id()) != _allowedToProceed.end()){
+//
+//            }
+//
+//
+//            if(_waiters.size()==numThreads){
+//                _internalMutex.unlock();
+//                break;
+//            }
+//            _internalMutex.unlock();
+//            mongo::sleepmillis(2);
+//        }
+
+    }
+
     if (_mutex.try_lock()) {
         _isLocked = true;
         _onQuickLock();
