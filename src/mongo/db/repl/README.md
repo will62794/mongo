@@ -1515,6 +1515,17 @@ reconfig occurs, the *version* of the new configuration must be higher than the 
 configuration. Similarly, the *term* of a configuration is the term of the primary that created that
 config.
 
+<!-- TODO: Clean up -->
+
+In a static configuration, the safety of the Raft protocol depends on the fact that any two quorums of a replica set(i.e. majorities) have at least one common member. For any two arbitrary configurations, however, this is not the case. So, to guarantee safety of reconfiguration, we restrict the types of reconfigurations that can be done at any one time. Specifically, safe reconfig requires that no more than a single voting node be added or removed in one reconfig. This constraint that any adjacent configs (that differ by only one voting member) have quorum overlap. To move through multiple configs, though, quorum overlap may not be ensured in general, so there are two safety conditions that must be satisfied before installing a new config on a primary node:
+
+1. **Config Commitment**: The current config, C, must be installed on at least a majority of nodes in C.
+2. **Oplog Commitment**: Any oplog entries that were majority committed in the previous config C0, must be replicated to a majority of nodes in the current configuration C1.
+
+The config pre-condition (1) ensures that any configs earlier than C can no longer independently form a quorum to elect a node or commit a write. The oplog pre-condition (2) ensures that committed writes in any older configs are now committed by the rules of the current configuration, to ensure that any leaders elected in *subsequent* configurations will contain these entries in their log upon assuming role as leader.
+
+In the real system, we wait for both of these conditions to become true at the beginning of the `replSetReconfig` command, and also wait for condition 1 to become true of the new config at the end of the reconfig command. This means that for a safe reconfig command to complete successfully, it may be necessary for a client to wait for either heartbeat propagation or replication of some oplog entries.
+
 # Startup Recovery
 
 **Startup recovery** is a node's process for putting both the oplog and data into a consistent state
