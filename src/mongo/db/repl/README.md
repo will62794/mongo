@@ -1478,13 +1478,12 @@ is the node's last applied OpTime. Finally, the `InitialSyncer` shuts down and t
 
 # Reconfiguration
 
-A MongoDB replica set consists of some set of nodes, where a node corresponds to a single mongod
-server process running on some host and port. A set of nodes along with some global settings for the
-replica set is referred to as a *configuration*. When the nodes of a replica set are first started,
-the set must be initiated with some initial configuration, which is done by running the
-`replSetInitiate` command against some node of the replica set. When processing an initiate command,
-a node validates and installs the requested config and then establishes connections to and begins
-sending heartbeats to the other nodes of the replica set contained in the config it installed.
+MongoDB replica sets consists of a set of members, where a *member* corresponds to a single participant of the replica set, identified by some host name and port, along with some other member specific settings. We will also refer to a *node*, which can be viewed more concretely as a running mongod server process that corresponds to a particular replica set member. A replica set *configuration* consists of the list of members along with some global settings for the
+replica set. We will alternately refer to a configuration as a *config*, for brevity. The schema of a config can be seen in the [ReplSetConfig](https://github.com/mongodb/mongo/blob/f9f1d128ea2b4f531f3e9a92027369ebef3507fa/src/mongo/db/repl/repl_set_config.h#L143-L539) object, which is serialized as a BSON object and stored locally on each replica set member, in the `local.system.replset` collection.
+
+When the mongod processes for members of a replica set are first started, they have no configuration installed and they do not communicate with each other over the network or replicate any data. To initialize the replica set, an initial config must be given via the `replSetInitiate` command. Upon receiving this command, which can be run on any node of the uninitialized set,
+the node validates and installs the specified config. It then establishes connections to and begins
+sending heartbeats to the other nodes of the replica set contained in the configuration it installed.
 Configurations are propagated between nodes via heartbeats, and configurations are assigned a
 numeric *version* and *term* that act as a means to establish an ordering between different
 configurations. Config's are compared based on their (term, version) pair. If their terms are the
@@ -1492,17 +1491,23 @@ same, then they compared based on version, otherwise the config with the greater
 newer. This is analogous to the comparision rule used for optimes, if we view config *version* as
 the analogue of an optime *timestamp*.
 
-To install a new configuration, a client executes a `replSetReconfig` command with the new, desired
-config. Reconfigurations can be run in *safe* mode or in *force* mode, Safe reconfigs can only be
-run against primary nodes, and they enforce stronger safety constraints. Force reconfigs can be run
-against either a primary or secondary node and they are unsafe in the sense that their usage may
-cause the roll back of majority committed writes, or cause two leaders to be elected in the same
-term. Although force reconfigs are fundamentally unsafe, they exist to allow users to salvage or
+
+<!-- When the members of a replica set are first started,
+the set must be initiated with some initial configuration, which is done by running the
+`replSetInitiate` command against some member of the replica set.  -->
+
+
+
+To install a new configuration, a client executes a `replSetReconfig` command with the new, desired config. 
+Reconfigurations can be run in *safe* mode or in *force* mode. Safe reconfigs, which are the default, can only be
+run against primary nodes, enforce the standard replication safety guarantee that majority committed writes will not be rolled back. Force reconfigs can be run
+against either a primary or secondary node and their usage may
+cause the roll back of majority committed writes. Although force reconfigs are fundamentally unsafe, they exist to allow users to salvage or
 repair a replica set where a majority of nodes are no longer operational.
 
 ## Safe Reconfig Protocol
 
-The safe, non-force reconfig protocol implemented in MongoDB bears similarities to the
+The safe reconfig protocol implemented in MongoDB bears similarities to the
 "single-server" reconfiguration protocol described Section 4 of the Raft [PhD
 thesis](https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf) but differs in a few ways. As
 mentioned above, each replica set configuration is identified with a (term,version) pair. Whenever a
