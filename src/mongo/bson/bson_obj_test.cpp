@@ -51,7 +51,7 @@ using namespace mongo;
 TEST(BSONObj, threads) {
     Mutex lock = MONGO_MAKE_LATCH("interleavemutex");
     std::vector<int> history;
-    int iters = 2;
+    int iters = 3;
 
     AtomicWord<int> nextThread{0};
     AtomicWord<int> numWaiters{0};
@@ -65,6 +65,8 @@ TEST(BSONObj, threads) {
 
     // Is a thread done its critical section.
     AtomicWord<int> doneCS{0};
+
+    PseudoRandom r(SecureRandom().nextInt64());
 
     stdx::thread arbiter = stdx::thread([&] {
         PseudoRandom rand(SecureRandom().nextInt64());
@@ -82,7 +84,7 @@ TEST(BSONObj, threads) {
             }
 
             // Pick a random thread to proceed.
-            int next = rand.nextInt64(2) + 1;
+            int next = SecureRandom().nextInt64(2) + 1;
             // If either thread has finished, we must schedule the other thread.
             if (done1.load()) {
                 next = 2;
