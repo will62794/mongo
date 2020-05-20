@@ -320,11 +320,12 @@ other node with the `replSetHeartbeat` command. This means that the number of he
 quadratically with the number of nodes and is the reasoning behind the 50 member limit in a replica
 set. The data, `ReplSetHeartbeatArgsV1` that accompanies every heartbeat is:
 
-1. `ReplicaSetConfig` version and term
-2. The id of the sender in the `ReplSetConfig`
-3. Term
-4. Replica set name
-5. Sender host address
+1. `ReplicaSetConfig` version
+2. `ReplicaSetConfig` term
+3. The id of the sender in the `ReplSetConfig`
+4. Term
+5. Replica set name
+6. Sender host address
 
 When the remote node receives the heartbeat, it first processes the heartbeat data, and then sends a
 response back. First, the remote node makes sure the heartbeat is compatible with its replica set
@@ -1534,17 +1535,18 @@ between configs on different nodes, so there are two additional constraints that
 before a primary node can install a new configuration:
 
 1. **[Config
-Commitment](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L3531-L3534)**:
-The current config, C, must be installed on at least a majority of nodes in C.
+Replication](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L3531-L3534)**:
+The current config, C, must be installed on at least a majority of voting nodes in C.
 2. **[Oplog
 Commitment](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L3553-L3560)**:
-Any oplog entries that were majority committed in the previous config, C0, must be replicated to a
-majority of nodes in the current config, C1.
+Any oplog entries that were majority committed in the previous config, C0, must be replicated to at
+least a majority of voting nodes in the current config, C1.
 
 Condition 1 ensures that any configs earlier than C can no longer independently form a quorum to
 elect a node or commit a write. Condition 2 ensures that committed writes in any older configs are
 now committed by the rules of the current configuration. This guarantees that any leaders elected in
 a subsequent configuration will contain these entries in their log upon assuming role as leader.
+When both conditions are satisfied, we say that the current config is *committed*.
 
 We wait for both of these conditions to become true at the
 [beginning](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/repl_set_commands.cpp#L421-L437)
@@ -1562,31 +1564,33 @@ node change condition.
 
 As mentioned above, configs are propagated between nodes via heartbeats. To do this properly, nodes
 must have some way of determining if one config is "newer" than another. Each configuration has a
-`term` and `version` field, and configs are totally ordered by the `(version, term)` pair, where
-`term` is compared first, and then `version`, analogous to the rules for  optime comparison. The
-`term` of a config is the term of the primary that originally created that config, and the `version`
-is a monotonically increasing number assigned to each config. When executing a reconfig, the version
-of the new config must be greater than the version of the current config.  If the `(version, term)`
-pair of config A is greater than that of config B, then it is considered "newer" than config B. If a
-node hears about a newer config via a heartbeat from another node, it will [schedule a
+`term` and `version` field, and configs are totally ordered by the [`(version,
+term)`](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/repl_set_config.h#L50-L55)
+pair, where `term` is compared first, and then `version`, analogous to the rules for  optime
+comparison. The `term` of a config is the term of the primary that originally created that config,
+and the `version` is a monotonically increasing number assigned to each config. When executing a
+reconfig, the version of the new config must be greater than the version of the current config.  If
+the `(version, term)` pair of config A is greater than that of config B, then it is considered
+"newer" than config B. If a node hears about a newer config via a heartbeat from another node, it
+will [schedule a
 heartbeat](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L5019-L5036)
 to fetch the config and
 [install](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/topology_coordinator.cpp#L892-L895)
 it locally.
+
+Note that force reconfigs set the new config's term to an [uninitialized term
+value](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/optime.h#L58-L59). When we
+compare two configs, if either of them has an uninitialized term value, then we only consider config
+versions for comparison. A force reconfig also [increments the
+version](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L3227-L3232)
+of the current config by a large, random number. This makes it very likely that the force config
+will be "newer" than any other config in the system.
 
 Config ordering also affects voting behavior. If a replica set node is a candidate for election in
 config `(vc, tc)`, then a prospective voter  with config `(v, t)` will only cast a vote for the
 candidate if `(vc, tc) = (v, t)`. For correctness, it would be acceptable for a candidate to cast
 its vote whenever `(vc, tc) >= (v, t)`, but the current implementation is more restrictive. For a
 description of the complete voting behavior, see the [Elections](#Elections) section.
-
-Note that force reconfigs set the new config's term to an [uninitialized term
-value](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/optime.h#L58-L59).
-When we compare two configs, if either of them has an uninitialized term value, then we only
-consider config versions for comparison. A force reconfig also [increments the
-version](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L3227-L3232)
-of the current config by a large, random number. This makes it very likely that the force config
-will be "newer" than any other config in the system.
 
 ### Formal Specification
 
