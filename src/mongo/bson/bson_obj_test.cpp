@@ -54,7 +54,6 @@ TEST(BSONObj, threads) {
     int iters = 4;
 
     AtomicWord<int> nextThread{0};
-    AtomicWord<int> numWaiters{0};
 
     AtomicWord<int> t1Waiting{0};
     AtomicWord<int> t2Waiting{0};
@@ -113,9 +112,7 @@ TEST(BSONObj, threads) {
         for (int i = 0; i < iters; i++) {
             // Wait for your turn.
             t1Waiting.store(1);
-            logd("T1 waiting to proceed. numWaiters: {}, nextThread: {}",
-                 numWaiters.load(),
-                 nextThread.load());
+            logd("T1 waiting to proceed. nextThread: {}", nextThread.load());
             while (nextThread.load() != 1) {
                 mongo::sleepmicros(50);
             }
@@ -141,9 +138,7 @@ TEST(BSONObj, threads) {
         for (int i = 0; i < iters; i++) {
             // Wait for your turn.
             t2Waiting.store(1);
-            logd("T2 waiting to proceed. numWaiters: {}, nextThread: {}",
-                 numWaiters.load(),
-                 nextThread.load());
+            logd("T2 waiting to proceed. nextThread: {}", nextThread.load());
             while (nextThread.load() != 2) {
                 mongo::sleepmicros(50);
             }
