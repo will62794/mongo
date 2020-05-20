@@ -51,7 +51,7 @@ using namespace mongo;
 TEST(BSONObj, threads) {
     Mutex lock = MONGO_MAKE_LATCH("interleavemutex");
     std::vector<int> history;
-    int iters = 3;
+    int iters = 4;
 
     AtomicWord<int> nextThread{0};
     AtomicWord<int> numWaiters{0};
@@ -66,25 +66,23 @@ TEST(BSONObj, threads) {
     // Is a thread done its critical section.
     AtomicWord<int> doneCS{0};
 
-    PseudoRandom r(SecureRandom().nextInt64());
 
     stdx::thread arbiter = stdx::thread([&] {
-        PseudoRandom rand(SecureRandom().nextInt64());
-        //        PseudoRandom rand((unsigned)curTimeMicros64());
+        auto srand = SecureRandom();
         while (done1.load() + done2.load() < 2) {
             // Wait until all threads are waiting to proceed.
             logd("Arbiter waiting for both threads.");
             // Wait for T1, only if it's still running.
             while (!t1Waiting.load() && done1.load() == 0) {
-                mongo::sleepmillis(2);
+                mongo::sleepmicros(50);
             }
             // Wait for T2, only if it's still running.
             while (!t2Waiting.load() && done2.load() == 0) {
-                mongo::sleepmillis(2);
+                mongo::sleepmicros(50);
             }
 
             // Pick a random thread to proceed.
-            int next = SecureRandom().nextInt64(2) + 1;
+            int next = srand.nextInt64(2) + 1;
             // If either thread has finished, we must schedule the other thread.
             if (done1.load()) {
                 next = 2;
@@ -100,7 +98,7 @@ TEST(BSONObj, threads) {
             // Wait for the thread to have finished its critical section.
             logd("Arbiter waiting for thread {} to complete critical section.", next);
             while (doneCS.load() != 1) {
-                mongo::sleepmillis(2);
+                mongo::sleepmicros(50);
             }
 
             // Reset the flag.
@@ -119,7 +117,7 @@ TEST(BSONObj, threads) {
                  numWaiters.load(),
                  nextThread.load());
             while (nextThread.load() != 1) {
-                mongo::sleepmillis(2);
+                mongo::sleepmicros(50);
             }
 
             // We are now proceeding, so no longer waiting.
@@ -147,7 +145,7 @@ TEST(BSONObj, threads) {
                  numWaiters.load(),
                  nextThread.load());
             while (nextThread.load() != 2) {
-                mongo::sleepmillis(2);
+                mongo::sleepmicros(50);
             }
 
             // We are now proceeding, so no longer waiting.
