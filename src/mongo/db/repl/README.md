@@ -333,9 +333,10 @@ name. Otherwise it sends an error.
 The receiving node's `TopologyCoordinator` updates the last time it received a heartbeat from the
 sending node for liveness checking in its `MemberHeartbeatData` list.
 
-If the sending node's config is newer than the receiving node's, then the receiving node schedules
-a heartbeat to get the config. The receiving node's `ReplicationCoordinator` also updates its
-`SlaveInfo` with the last update from the sending node and marks it as being up. See more details on config propagation via heartbeats in the [Reconfiguration](#Reconfiguration) section.
+If the sending node's config is newer than the receiving node's, then the receiving node schedules a
+heartbeat to get the config. The receiving node's `ReplicationCoordinator` also updates its
+`SlaveInfo` with the last update from the sending node and marks it as being up. See more details on
+config propagation via heartbeats in the [Reconfiguration](#Reconfiguration) section.
 
 It then creates a `ReplSetHeartbeatResponse` object. This includes:
 
@@ -1477,54 +1478,126 @@ is the node's last applied OpTime. Finally, the `InitialSyncer` shuts down and t
 
 # Reconfiguration
 
-MongoDB replica sets consist of a set of members, where a *member* corresponds to a single participant of the replica set, identified by a host name and port, along with other member specific settings. We refer to a *node* as the mongod server process that corresponds to a particular replica set member. A replica set *configuration* consists of a list of members in a replica set along with some member specific settings as well as global settings for the
-set. We alternately refer to a configuration as a *config*, for brevity. Each member of the config has a [member id](https://github.com/mongodb/mongo/blob/8751e79bc03b5c4c679040440ac76481fd3db356/src/mongo/db/repl/member_id.h), which is a unique integer identifier for that member. The schema of a full config is defined in the [ReplSetConfig](https://github.com/mongodb/mongo/blob/f9f1d128ea2b4f531f3e9a92027369ebef3507fa/src/mongo/db/repl/repl_set_config.h#L143-L539) class, which is serialized as a BSON object and stored durably in the `local.system.replset` collection on each replica set node.
+MongoDB replica sets consist of a set of members, where a *member* corresponds to a single
+participant of the replica set, identified by a host name and port, along with other member specific
+settings. We refer to a *node* as the mongod server process that corresponds to a particular replica
+set member. A replica set *configuration* consists of a list of members in a replica set along with
+some member specific settings as well as global settings for the set. We alternately refer to a
+configuration as a *config*, for brevity. Each member of the config has a [member
+id](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/member_id.h),
+which is a unique integer identifier for that member. The schema of a full config is defined in the
+[ReplSetConfig](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/repl_set_config.h#L110-L547)
+class, which is serialized as a BSON object and stored durably in the `local.system.replset`
+collection on each replica set node.
 
 ## Initiation
 
-When the mongod processes for members of a replica set are first started, they have no configuration installed and they do not communicate with each other over the network or replicate any data. To initialize the replica set, an initial config must be provided via the `replSetInitiate` command, so that nodes know who the other members of the replica set are. Upon receiving this command, which can be run on any node of an uninitialized set,
-a node validates and installs the specified config. It then establishes connections to and begins
-sending heartbeats to the other nodes of the replica set contained in the configuration it installed.
-Configurations are propagated between nodes via heartbeats, which is how nodes in the replica set will receive and install the initial config.
+When the mongod processes for members of a replica set are first started, they have no configuration
+installed and they do not communicate with each other over the network or replicate any data. To
+initialize the replica set, an initial config must be provided via the `replSetInitiate` command, so
+that nodes know who the other members of the replica set are. Upon receiving this command, which can
+be run on any node of an uninitialized set, a node validates and installs the specified config. It
+then establishes connections to and begins sending heartbeats to the other nodes of the replica set
+contained in the configuration it installed. Configurations are propagated between nodes via
+heartbeats, which is how nodes in the replica set will receive and install the initial config.
 
 ## Reconfiguration Behavior
 
-To update the current configuration, a client may execute the `replSetReconfig` command with the new, desired config. 
-Reconfigurations [can be run ](https://github.com/mongodb/mongo/blob/892bce4528b2ec97d9f264b5a982d54da0e4971d/src/mongo/db/repl/repl_set_commands.cpp#L419-L421)in *safe* mode or in *force* mode. We alternately refer to reconfigurations as *reconfigs*, for brevity. Safe reconfigs, which are the default, can only be
-run against primary nodes and ensure the replication safety guarantee that majority committed writes will not be rolled back. Force reconfigs can be run
-against either a primary or secondary node and their usage may
-cause the rollback of majority committed writes. Although force reconfigs are unsafe, they exist to allow users to salvage or
-repair a replica set where a majority of nodes are no longer operational or reachable.
+To update the current configuration, a client may execute the `replSetReconfig` command with the
+new, desired config. Reconfigurations [can be run
+](https://github.com/mongodb/mongo/blob/892bce4528b2ec97d9f264b5a982d54da0e4971d/src/mongo/db/repl/repl_set_commands.cpp#L419-L421)in
+*safe* mode or in *force* mode. We alternately refer to reconfigurations as *reconfigs*, for
+brevity. Safe reconfigs, which are the default, can only be run against primary nodes and ensure the
+replication safety guarantee that majority committed writes will not be rolled back. Force reconfigs
+can be run against either a primary or secondary node and their usage may cause the rollback of
+majority committed writes. Although force reconfigs are unsafe, they exist to allow users to salvage
+or repair a replica set where a majority of nodes are no longer operational or reachable.
 
 ### Safe Reconfig Protocol
 
-The safe reconfiguration protocol implemented in MongoDB shares certain conceptual similarities with the
-"single server" reconfiguration approach described in Section 4 of the [Raft PhD
-thesis](https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf), but was designed with some differences to integrate with the existing, heartbeat based reconfig protocol more easily.
+The safe reconfiguration protocol implemented in MongoDB shares certain conceptual similarities with
+the "single server" reconfiguration approach described in Section 4 of the [Raft PhD
+thesis](https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf), but was designed with some
+differences to integrate with the existing, heartbeat based reconfig protocol more easily.
 
-Note that in a static configuration, the safety of the Raft protocol depends on the fact that any two quorums (i.e. majorities) of a replica set have at least one member in common i.e. they satisfy the *quorum overlap* property. For any two arbitrary configurations, however, this is not the case. So, extra restrictions are placed on how nodes are allowed to move between configurations. First, all safe reconfigs enforce a **[single node change](https://github.com/mongodb/mongo/blob/d43a9f044f9a25980c467f8b7922ad691f517803/src/mongo/db/repl/repl_set_config_checks.cpp#L100-L107)** condition, which requires that no more than a single voting node is added or removed in a single reconfig. This constraint ensures that any adjacent configs satisfy quorum overlap. You can see a justification of why this is true in the Raft thesis section referenced above. If a replica set transitions between many configs over time, however, quorum overlap may not always be ensured between configs on different nodes, so there are two additional constraints that must be satisfied before a primary node installs a new configuration:
+Note that in a static configuration, the safety of the Raft protocol depends on the fact that any
+two quorums (i.e. majorities) of a replica set have at least one member in common i.e. they satisfy
+the *quorum overlap* property. For any two arbitrary configurations, however, this is not the case.
+So, extra restrictions are placed on how nodes are allowed to move between configurations. First,
+all safe reconfigs enforce a **[single node
+change](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/repl_set_config_checks.cpp#L82-L89)**
+condition, which requires that no more than a single voting node is added or removed in a single
+reconfig. This constraint ensures that any adjacent configs satisfy quorum overlap. You can see a
+justification of why this is true in the Raft thesis section referenced above. If a replica set
+transitions between many configs over time, however, quorum overlap may not always be ensured
+between configs on different nodes, so there are two additional constraints that must be satisfied
+before a primary node installs a new configuration:
 
-1. **[Config Commitment](https://github.com/mongodb/mongo/blob/25c694f365db0f07a445bd17b6cd5cbf32f5f2f9/src/mongo/db/repl/replication_coordinator_impl.cpp#L3617-L3620)**: The current config, C, must be installed on at least a majority of nodes in C.
-2. **[Oplog Commitment](https://github.com/mongodb/mongo/blob/25c694f365db0f07a445bd17b6cd5cbf32f5f2f9/src/mongo/db/repl/replication_coordinator_impl.cpp#L3639-L3646)**: Any oplog entries that were majority committed in the previous config, C0, must be replicated to a majority of nodes in the current config, C1.
+1. **[Config
+Commitment](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L3531-L3534)**:
+The current config, C, must be installed on at least a majority of nodes in C.
+2. **[Oplog
+Commitment](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L3553-L3560)**:
+Any oplog entries that were majority committed in the previous config, C0, must be replicated to a
+majority of nodes in the current config, C1.
 
-Condition 1 ensures that any configs earlier than C can no longer independently form a quorum to elect a node or commit a write. Condition 2 ensures that committed writes in any older configs are now committed by the rules of the current configuration. This guarantees that any leaders elected in a subsequent configuration will contain these entries in their log upon assuming role as leader.
+Condition 1 ensures that any configs earlier than C can no longer independently form a quorum to
+elect a node or commit a write. Condition 2 ensures that committed writes in any older configs are
+now committed by the rules of the current configuration. This guarantees that any leaders elected in
+a subsequent configuration will contain these entries in their log upon assuming role as leader.
 
-We wait for both of these conditions to become true at the [beginning](https://github.com/mongodb/mongo/blob/eae31861e0f813f0099e1d490c4a622d75cd5a08/src/mongo/db/repl/repl_set_commands.cpp#L423-L439) of the `replSetReconfig` command, before installing the new config. After installing the new config, we wait for condition 1 to become true of the new config at the [end](https://github.com/mongodb/mongo/blob/eae31861e0f813f0099e1d490c4a622d75cd5a08/src/mongo/db/repl/repl_set_commands.cpp#L444-L451) of the reconfig command. This means that for a safe reconfig command to complete successfully, it may be necessary for a client to wait for either heartbeat propagation or replication of some oplog entries.
+We wait for both of these conditions to become true at the
+[beginning](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/repl_set_commands.cpp#L421-L437)
+of the `replSetReconfig` command, before installing the new config. After installing the new config,
+we wait for condition 1 to become true of the new config at the
+[end](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/repl_set_commands.cpp#L442-L454)
+of the reconfig command. This means that for a safe reconfig command to complete successfully, it
+may be necessary for a client to wait for either heartbeat propagation or replication of some oplog
+entries.
 
-Note that force reconfigs bypass all checks of condition 1 and 2, and they do not enforce the single node change condition.
+Note that force reconfigs bypass all checks of condition 1 and 2, and they do not enforce the single
+node change condition.
 
 ### Config Ordering and Elections
 
-As mentioned above, configs are propagated between nodes via heartbeats. To do this properly, nodes must have some way of determining if one config is "newer" than another. Each configuration has a `term` and `version` field, and configs are totally ordered by the `(version, term)` pair, where `term` is compared first, and then `version`, analogous to the rules for  optime comparison. The `term` of a config is the term of the primary that originally created that config, and the `version` of a config is a monotonically increasing number assigned to each config. When executing a reconfig, the version of the new config must be greater than the version of the current config.  If the `(version, term)` pair of config A is greater than that of config B, then it is considered "newer" than config B. If a node hears about a newer config via a heartbeat from another node, it will [schedule a heartbeat](https://github.com/mongodb/mongo/blob/25c694f365db0f07a445bd17b6cd5cbf32f5f2f9/src/mongo/db/repl/replication_coordinator_impl.cpp#L5189-L5215) to fetch the config and then [install](https://github.com/mongodb/mongo/blob/ab9233d37298a13752ebed493c2c2f973b087adf/src/mongo/db/repl/topology_coordinator.cpp#L952-L955) it locally. 
+As mentioned above, configs are propagated between nodes via heartbeats. To do this properly, nodes
+must have some way of determining if one config is "newer" than another. Each configuration has a
+`term` and `version` field, and configs are totally ordered by the `(version, term)` pair, where
+`term` is compared first, and then `version`, analogous to the rules for  optime comparison. The
+`term` of a config is the term of the primary that originally created that config, and the `version`
+of a config is a monotonically increasing number assigned to each config. When executing a reconfig,
+the version of the new config must be greater than the version of the current config.  If the
+`(version, term)` pair of config A is greater than that of config B, then it is considered "newer"
+than config B. If a node hears about a newer config via a heartbeat from another node, it will
+[schedule a
+heartbeat](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L5019-L5036)
+to fetch the config and then
+[install](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/topology_coordinator.cpp#L892-L895)
+it locally.
 
-Config ordering also affects voting behavior. If a replica set node is a candidate for election in config `(vc, tc)`, then a prospective voter  with config `(v, t)` will only cast a vote for the candidate if `(vc, tc) = (v, t)`. For correctness, it would be acceptable for a candidate to cast its vote whenever `(vc, tc) >= (v, t)`, but the current implementation is more restrictive. 
+Config ordering also affects voting behavior. If a replica set node is a candidate for election in
+config `(vc, tc)`, then a prospective voter  with config `(v, t)` will only cast a vote for the
+candidate if `(vc, tc) = (v, t)`. For correctness, it would be acceptable for a candidate to cast
+its vote whenever `(vc, tc) >= (v, t)`, but the current implementation is more restrictive.
 
-Note that force reconfigs set the new config's term to an [uninitialized term value](https://github.com/mongodb/mongo/blob/2546fe1c22b0777ca68e604376900ea11f10ee3a/src/mongo/db/repl/optime.h#L58-L59). When we compare two configs, if either of them has an uninitialized term value, then we only consider config versions for comparison. A force reconfig also [increments the version](https://github.com/mongodb/mongo/blob/25c694f365db0f07a445bd17b6cd5cbf32f5f2f9/src/mongo/db/repl/replication_coordinator_impl.cpp#L3252-L3254) of the current config by a large, random number. This makes it very likely that the force config will be "newer" than any other config in the system.
+Note that force reconfigs set the new config's term to an [uninitialized term
+value](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/optime.h#L58-L59).
+When we compare two configs, if either of them has an uninitialized term value, then we only
+consider config versions for comparison. A force reconfig also [increments the
+version](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L3227-L3232)
+of the current config by a large, random number. This makes it very likely that the force config
+will be "newer" than any other config in the system.
 
 ### Formal Specification
 
-For more details on the safe reconfig protocol and its behaviors, refer to the [TLA+ specification](https://github.com/mongodb/mongo/tree/90787b49457d8a4f28b23985d56430a1a174454e/src/mongo/db/repl/tla_plus/MongoReplReconfig). It defines two main invariants of the protocol, [ElectionSafety](https://github.com/mongodb/mongo/blob/90787b49457d8a4f28b23985d56430a1a174454e/src/mongo/db/repl/tla_plus/MongoReplReconfig/MongoReplReconfig.tla#L403-L404) and [NeverRollbackCommitted](https://github.com/mongodb/mongo/blob/90787b49457d8a4f28b23985d56430a1a174454e/src/mongo/db/repl/tla_plus/MongoReplReconfig/MongoReplReconfig.tla#L413-L420), which assert, respectively, that no two leaders are elected in the same term and that majority committed writes are never rolled back.
-
+For more details on the safe reconfig protocol and its behaviors, refer to the [TLA+
+specification](https://github.com/mongodb/mongo/tree/r4.4.0-rc6/src/mongo/db/repl/tla_plus/MongoReplReconfig).
+It defines two main invariants of the protocol,
+[ElectionSafety](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/tla_plus/MongoReplReconfig/MongoReplReconfig.tla#L403-L404)
+and
+[NeverRollbackCommitted](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/tla_plus/MongoReplReconfig/MongoReplReconfig.tla#L413-L420),
+which assert, respectively, that no two leaders are elected in the same term and that majority
+committed writes are never rolled back.
 
 # Startup Recovery
 
