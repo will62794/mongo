@@ -1528,11 +1528,14 @@ So, extra restrictions are placed on how nodes are allowed to move between confi
 all safe reconfigs enforce a **[single node
 change](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/repl_set_config_checks.cpp#L82-L89)**
 condition, which requires that no more than a single voting node is added or removed in a single
-reconfig. This constraint ensures that any adjacent configs satisfy quorum overlap. You can see a
-justification of why this is true in the Raft thesis section referenced above. If a replica set
-transitions between many configs over time, however, quorum overlap may not always be ensured
-between configs on different nodes, so there are two additional constraints that must be satisfied
-before a primary node can install a new configuration:
+reconfig. Any number of non voting nodes can be added or removed in a single reconfig. This
+constraint ensures that any adjacent configs satisfy quorum overlap. You can see a justification of
+why this is true in the Raft thesis section referenced above.
+
+Even though the single node change condition ensures quorum overlap between two adjacent configs,
+quorum overlap may not always be ensured between configs on all nodes of the system, so there are
+two additional constraints that must be satisfied before a primary node can install a new
+configuration:
 
 1. **[Config
 Replication](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L3531-L3534)**:
