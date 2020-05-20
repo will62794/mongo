@@ -320,7 +320,7 @@ other node with the `replSetHeartbeat` command. This means that the number of he
 quadratically with the number of nodes and is the reasoning behind the 50 member limit in a replica
 set. The data, `ReplSetHeartbeatArgsV1` that accompanies every heartbeat is:
 
-1. `ReplicaSetConfig` version
+1. `ReplicaSetConfig` version and term
 2. The id of the sender in the `ReplSetConfig`
 3. Term
 4. Replica set name
@@ -328,14 +328,14 @@ set. The data, `ReplSetHeartbeatArgsV1` that accompanies every heartbeat is:
 
 When the remote node receives the heartbeat, it first processes the heartbeat data, and then sends a
 response back. First, the remote node makes sure the heartbeat is compatible with its replica set
-name and its `ReplicaSetConfig` version and otherwise sends an error.
+name. Otherwise it sends an error.
 
 The receiving node's `TopologyCoordinator` updates the last time it received a heartbeat from the
 sending node for liveness checking in its `MemberHeartbeatData` list.
 
-If the sending node's config is higher than the receiving node's, then the receiving node schedules
+If the sending node's config is newer than the receiving node's, then the receiving node schedules
 a heartbeat to get the config. The receiving node's `ReplicationCoordinator` also updates its
-`SlaveInfo` with the last update from the sending node and marks it as being up.
+`SlaveInfo` with the last update from the sending node and marks it as being up. See more details on config propagation via heartbeats in the [Reconfiguration](#Reconfiguration) section.
 
 It then creates a `ReplSetHeartbeatResponse` object. This includes:
 
@@ -346,7 +346,7 @@ It then creates a `ReplSetHeartbeatResponse` object. This includes:
 5. The term of the receiving node
 6. The state of the receiving node
 7. The receiving node's sync source
-8. The receiving node's `ReplicaSetConfig` version
+8. The receiving node's `ReplicaSetConfig` version and term
 9. Whether the receiving node is primary
 
 When the sending node receives the response to the heartbeat, it first processes its
@@ -434,8 +434,7 @@ When a node receives a `replSetUpdatePosition` command, the first thing it does 
 For every node’s OpTime data in the `optimes` array, the receiving node updates its view of the
 replicaset in the replication and topology coordinators. This updates the liveness information of
 every node in the `optimes` list. If the data is about the receiving node, it ignores it. If the
-`ReplSetConfig` versions don’t match, it errors. If the receiving node is a primary and it learns
-that the commit point should be moved forward, it does so.
+receiving node is a primary and it learns that the commit point should be moved forward, it does so.
 
 If something has changed and the receiving node itself has a sync source, it forwards its new
 information to its own sync source.
@@ -1148,7 +1147,7 @@ updates its own term accordingly. The `ReplicationCoordinator` then asks the `To
 if it should grant a vote. The vote is rejected if:
 
 1. It's from an older term.
-2. The config versions do not match.
+2. The configs do not match (see more detail in [Config Ordering and Elections](#config-ordering-and-elections)).
 3. The replica set name does not match.
 4. The last applied OpTime that comes in the vote request is older than the voter's last applied
    OpTime.
@@ -1237,7 +1236,7 @@ that is okay. If you consider the minimum spanning tree on the cluster where edg
 from nodes to their sync source, then as long as the primary is connected to a majority of nodes, it
 will stay primary.
 * Force reconfig via the `replSetReconfig` command
-* Force reconfig via heartbeat: If we learn of a newer config version through heartbeats, we will
+* Force reconfig via heartbeat: If we learn of a newer config through heartbeats, we will
 schedule a replica set config change.
 
 During unconditional stepdown, we do not check preconditions before attempting to step down. Similar
@@ -1503,7 +1502,7 @@ The safe reconfiguration protocol implemented in MongoDB shares certain conceptu
 "single server" reconfiguration approach described in Section 4 of the [Raft PhD
 thesis](https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf), but was designed with some differences to integrate with the existing, heartbeat based reconfig protocol more easily.
 
-Note that in a static configuration, the safety of the Raft protocol depends on the fact that any two quorums (i.e. majorities) of a replica set have at least one member in common i.e. they satisfy the *quorum overlap* property. For any two arbitrary configurations, however, this is not the case. So, extra restrictions are placed on how nodes are allowed to move between configurations. First, all safe reconfigs enforce a **single node change** condition, which requires that no more than a single voting node is added or removed in a single reconfig. This constraint ensures that any adjacent configs satisfy quorum overlap. You can see a justification of why this is true in the Raft thesis section referenced above. If a replica set transitions between many configs over time, however, quorum overlap may not always be ensured between configs on different nodes, so there are two additional constraints that must be satisfied before a primary node installs a new configuration:
+Note that in a static configuration, the safety of the Raft protocol depends on the fact that any two quorums (i.e. majorities) of a replica set have at least one member in common i.e. they satisfy the *quorum overlap* property. For any two arbitrary configurations, however, this is not the case. So, extra restrictions are placed on how nodes are allowed to move between configurations. First, all safe reconfigs enforce a **[single node change](https://github.com/mongodb/mongo/blob/d43a9f044f9a25980c467f8b7922ad691f517803/src/mongo/db/repl/repl_set_config_checks.cpp#L100-L107)** condition, which requires that no more than a single voting node is added or removed in a single reconfig. This constraint ensures that any adjacent configs satisfy quorum overlap. You can see a justification of why this is true in the Raft thesis section referenced above. If a replica set transitions between many configs over time, however, quorum overlap may not always be ensured between configs on different nodes, so there are two additional constraints that must be satisfied before a primary node installs a new configuration:
 
 1. **[Config Commitment](https://github.com/mongodb/mongo/blob/25c694f365db0f07a445bd17b6cd5cbf32f5f2f9/src/mongo/db/repl/replication_coordinator_impl.cpp#L3617-L3620)**: The current config, C, must be installed on at least a majority of nodes in C.
 2. **[Oplog Commitment](https://github.com/mongodb/mongo/blob/25c694f365db0f07a445bd17b6cd5cbf32f5f2f9/src/mongo/db/repl/replication_coordinator_impl.cpp#L3639-L3646)**: Any oplog entries that were majority committed in the previous config, C0, must be replicated to a majority of nodes in the current config, C1.
@@ -1512,7 +1511,7 @@ Condition 1 ensures that any configs earlier than C can no longer independently 
 
 We wait for both of these conditions to become true at the [beginning](https://github.com/mongodb/mongo/blob/eae31861e0f813f0099e1d490c4a622d75cd5a08/src/mongo/db/repl/repl_set_commands.cpp#L423-L439) of the `replSetReconfig` command, before installing the new config. After installing the new config, we wait for condition 1 to become true of the new config at the [end](https://github.com/mongodb/mongo/blob/eae31861e0f813f0099e1d490c4a622d75cd5a08/src/mongo/db/repl/repl_set_commands.cpp#L444-L451) of the reconfig command. This means that for a safe reconfig command to complete successfully, it may be necessary for a client to wait for either heartbeat propagation or replication of some oplog entries.
 
-Note that force reconfigs bypass all of these checks, and they do not enforce the single node change condition.
+Note that force reconfigs bypass all checks of condition 1 and 2, and they do not enforce the single node change condition.
 
 ### Config Ordering and Elections
 
