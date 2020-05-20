@@ -1481,9 +1481,9 @@ is the node's last applied OpTime. Finally, the `InitialSyncer` shuts down and t
 MongoDB replica sets consist of a set of members, where a *member* corresponds to a single
 participant of the replica set, identified by a host name and port. We refer to a *node* as the
 mongod server process that corresponds to a particular replica set member. A replica set
-configuration* consists of a list of members in a replica set along with some member specific
+*configuration* consists of a list of members in a replica set along with some member specific
 settings as well as global settings for the set. We alternately refer to a configuration as a
-config*, for brevity. Each member of the config has a [member
+*config*, for brevity. Each member of the config has a [member
 id](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/member_id.h), which is a
 unique integer identifier for that member. The schema of a config is defined in the
 [ReplSetConfig](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/repl_set_config.h#L110-L547)
