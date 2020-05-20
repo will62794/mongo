@@ -36,11 +36,11 @@
 #include "mongo/bson/unordered_fields_bsonobj_comparator.h"
 #include "mongo/db/jsobj.h"
 #include "mongo/db/json.h"
+#include "mongo/logv2/log.h"
 #include "mongo/platform/decimal128.h"
 #include "mongo/platform/mutex.h"
-#include "mongo/logv2/log.h"
-#include "mongo/stdx/thread.h"
 #include "mongo/platform/random.h"
+#include "mongo/stdx/thread.h"
 
 #include "mongo/unittest/unittest.h"
 
@@ -51,7 +51,7 @@ using namespace mongo;
 TEST(BSONObj, threads) {
     Mutex lock = MONGO_MAKE_LATCH("interleavemutex");
     std::vector<int> history;
-    int iters = 3;
+    int iters = 2;
 
     AtomicWord<int> nextThread{0};
     AtomicWord<int> numWaiters{0};
@@ -63,33 +63,46 @@ TEST(BSONObj, threads) {
     AtomicWord<int> done1{0};
     AtomicWord<int> done2{0};
 
+    // Is a thread done its critical section.
+    AtomicWord<int> doneCS{0};
 
     stdx::thread arbiter = stdx::thread([&] {
-        PseudoRandom rand((unsigned)curTimeMicros64());
-        while(done1.load() + done2.load() < 2){
+        PseudoRandom rand(SecureRandom().nextInt64());
+        //        PseudoRandom rand((unsigned)curTimeMicros64());
+        while (done1.load() + done2.load() < 2) {
             // Wait until all threads are waiting to proceed.
             logd("Arbiter waiting for both threads.");
-            while(t1Waiting.load() + t2Waiting.load() < 2){
+            // Wait for T1, only if it's still running.
+            while (!t1Waiting.load() && done1.load() == 0) {
+                mongo::sleepmillis(2);
+            }
+            // Wait for T2, only if it's still running.
+            while (!t2Waiting.load() && done2.load() == 0) {
                 mongo::sleepmillis(2);
             }
 
             // Pick a random thread to proceed.
             int next = rand.nextInt64(2) + 1;
             // If either thread has finished, we must schedule the other thread.
-            if(done1.load()){
+            if (done1.load()) {
                 next = 2;
             }
-            if(done2.load()){
+            if (done2.load()) {
                 next = 1;
             }
             logd("Arbiter letting thread {} proceed.", next);
 
-            // Clear the bits.
-            t1Waiting.store(0);
-            t2Waiting.store(0);
-
             // Let the thread proceed.
             nextThread.store(next);
+
+            // Wait for the thread to have finished its critical section.
+            logd("Arbiter waiting for thread {} to complete critical section.", next);
+            while (doneCS.load() != 1) {
+                mongo::sleepmillis(2);
+            }
+
+            // Reset the flag.
+            doneCS.store(0);
         }
     });
 
@@ -98,13 +111,17 @@ TEST(BSONObj, threads) {
     // for that execution.
     stdx::thread t1 = stdx::thread([&] {
         for (int i = 0; i < iters; i++) {
-
             // Wait for your turn.
-            logd("T1 waiting to proceed. numWaiters: {}, nextThread: {}", numWaiters.load(), nextThread.load());
-            while(nextThread.load() != 1){
-                t1Waiting.store(1);
+            t1Waiting.store(1);
+            logd("T1 waiting to proceed. numWaiters: {}, nextThread: {}",
+                 numWaiters.load(),
+                 nextThread.load());
+            while (nextThread.load() != 1) {
                 mongo::sleepmillis(2);
             }
+
+            // We are now proceeding, so no longer waiting.
+            t1Waiting.store(0);
 
             // Reset so you don't get through immediately next time.
             nextThread.store(0);
@@ -113,6 +130,9 @@ TEST(BSONObj, threads) {
             logd("t1 pushing 1");
             history.push_back(1);
             lock.unlock();
+
+            logd("T1 completed critical section.");
+            doneCS.store(1);
         }
 
         done1.store(1);
@@ -120,11 +140,16 @@ TEST(BSONObj, threads) {
     stdx::thread t2 = stdx::thread([&] {
         for (int i = 0; i < iters; i++) {
             // Wait for your turn.
-            logd("T2 waiting to proceed. numWaiters: {}, nextThread: {}", numWaiters.load(), nextThread.load());
-            while(nextThread.load() != 2){
-                t2Waiting.store(1);
+            t2Waiting.store(1);
+            logd("T2 waiting to proceed. numWaiters: {}, nextThread: {}",
+                 numWaiters.load(),
+                 nextThread.load());
+            while (nextThread.load() != 2) {
                 mongo::sleepmillis(2);
             }
+
+            // We are now proceeding, so no longer waiting.
+            t2Waiting.store(0);
 
             // Reset so you don't get through immediately next time.
             nextThread.store(0);
@@ -133,6 +158,7 @@ TEST(BSONObj, threads) {
             logd("t2 pushing 2");
             history.push_back(2);
             lock.unlock();
+            doneCS.store(1);
         }
 
         done2.store(1);
