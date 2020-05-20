@@ -359,6 +359,9 @@ private:
     // The set of threads now allowed to proceed.
     std::set<std::thread::id> _allowedToProceed;
 
+    // The thread id that is allowed to acquire this mutex.
+    std::thread::id _nextAllowedThread;
+
 };
 }  // namespace latch_detail
 
