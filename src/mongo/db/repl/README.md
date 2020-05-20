@@ -1478,25 +1478,25 @@ is the node's last applied OpTime. Finally, the `InitialSyncer` shuts down and t
 
 # Reconfiguration
 
-MongoDB replica sets consists of a set of members, where a *member* corresponds to a single participant of the replica set, identified by some host name and port, along with some other member specific settings. We will also refer to a *node*, which can be viewed more concretely as a running mongod server process that corresponds to a particular replica set member. A replica set *configuration* consists of the list of members along with some global settings for the
-replica set. We will alternately refer to a configuration as a *config*, for brevity. The schema of a config can be seen in the [ReplSetConfig](https://github.com/mongodb/mongo/blob/f9f1d128ea2b4f531f3e9a92027369ebef3507fa/src/mongo/db/repl/repl_set_config.h#L143-L539) object, which is serialized as a BSON object and stored locally on each replica set member, in the `local.system.replset` collection.
+MongoDB replica sets consist of a set of members, where a *member* corresponds to a single participant of the replica set, identified by some host name and port, along with other member specific settings. We refer to a *node* as the mongod server process that corresponds to a particular replica set member. A replica set *configuration* is the list of members in a replica set along with some global settings for the
+set. We will alternately refer to a configuration as a *config*, for brevity. Each member of the config has member id (an `_id` field in the config), which is a unique integer identifier for that member. The schema of a full config can be seen in the [ReplSetConfig](https://github.com/mongodb/mongo/blob/f9f1d128ea2b4f531f3e9a92027369ebef3507fa/src/mongo/db/repl/repl_set_config.h#L143-L539) object, which is serialized as a BSON object and stored durably in the `local.system.replset` collection on each replica set node.
 
-When the mongod processes for members of a replica set are first started, they have no configuration installed and they do not communicate with each other over the network or replicate any data. To initialize the replica set, an initial config must be given via the `replSetInitiate` command. Upon receiving this command, which can be run on any node of the uninitialized set,
-the node validates and installs the specified config. It then establishes connections to and begins
+When the mongod processes for members of a replica set are first started, they have no configuration installed and they do not communicate with each other over the network or replicate any data. To initialize the replica set, an initial config must be given via the `replSetInitiate` command, so that nodes know who the other members of the replica set are. Upon receiving this command, which can be run on any node of the uninitialized set,
+a node validates and installs the specified config. It then establishes connections to and begins
 sending heartbeats to the other nodes of the replica set contained in the configuration it installed.
 Configurations are propagated between nodes via heartbeats, and configurations are assigned a
 numeric *version* and *term* that act as a means to establish an ordering between different
-configurations. Config's are compared based on their (term, version) pair. If their terms are the
+configurations. This is discussed in more detail below.
+
+<!-- To delete? -->
+~~Config's are compared based on their (term, version) pair. If their terms are the
 same, then they compared based on version, otherwise the config with the greater term is considered
 newer. This is analogous to the comparision rule used for optimes, if we view config *version* as
-the analogue of an optime *timestamp*.
-
+the analogue of an optime *timestamp*.~~
 
 <!-- When the members of a replica set are first started,
 the set must be initiated with some initial configuration, which is done by running the
 `replSetInitiate` command against some member of the replica set.  -->
-
-
 
 To install a new configuration, a client executes a `replSetReconfig` command with the new, desired config. 
 Reconfigurations can be run in *safe* mode or in *force* mode. Safe reconfigs, which are the default, can only be
@@ -1507,13 +1507,15 @@ repair a replica set where a majority of nodes are no longer operational.
 
 ## Safe Reconfig Protocol
 
-The safe reconfiguration protocol implemented in MongoDB bears similarities to the
-"single server" approach described in Section 4 of the Raft [PhD
-thesis](https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf) but differs in a few ways. As
-mentioned above, each replica set configuration is identified with a `(term, version)` pair. Whenever a
+The safe reconfiguration protocol implemented in MongoDB shares some conceptual similarities with the
+"single server" reconfiguration approach described in Section 4 of the Raft [PhD
+thesis](https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf), but was designed with some differences to integrate into the existing, heartbeat based reconfig protocol more easily.
+
+<!-- TODO, Move or delete? -->
+~~As mentioned above, each replica set configuration is identified with a `(term, version)` pair. Whenever a
 reconfig occurs, the *version* of the new configuration must be higher than the current
 configuration, and the *term* of a configuration is the term of the primary that originally wrote that
-config.
+config.~~
 
 <!-- TODO: Clean up -->
 
@@ -1521,7 +1523,6 @@ In a static configuration, the safety of the Raft protocol depends on the fact t
 
 1. **Config Commitment**: The current config, C, must be installed on at least a majority of nodes in C.
 2. **Oplog Commitment**: Any oplog entries that were majority committed in the previous config, C0, must be replicated to a majority of nodes in the current configuration, C1.
-
 
 Precondition (1) ensures that any configs earlier than C can no longer independently form a quorum to elect a node or commit a write. Precondition (2) ensures that committed writes in any older configs are now committed by the rules of the current configuration, to guarantee that any leaders elected in subsequent configurations will contain these entries in their log upon assuming role as leader.
 
