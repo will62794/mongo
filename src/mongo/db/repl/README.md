@@ -1479,13 +1479,13 @@ is the node's last applied OpTime. Finally, the `InitialSyncer` shuts down and t
 # Reconfiguration
 
 MongoDB replica sets consist of a set of members, where a *member* corresponds to a single
-participant of the replica set, identified by a host name and port, along with other member specific
-settings. We refer to a *node* as the mongod server process that corresponds to a particular replica
-set member. A replica set *configuration* consists of a list of members in a replica set along with
-some member specific settings as well as global settings for the set. We alternately refer to a
-configuration as a *config*, for brevity. Each member of the config has a [member
-id](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/member_id.h),
-which is a unique integer identifier for that member. The schema of a full config is defined in the
+participant of the replica set, identified by a host name and port. We refer to a *node* as the
+mongod server process that corresponds to a particular replica set member. A replica set
+configuration* consists of a list of members in a replica set along with some member specific
+settings as well as global settings for the set. We alternately refer to a configuration as a
+config*, for brevity. Each member of the config has a [member
+id](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/member_id.h), which is a
+unique integer identifier for that member. The schema of a config is defined in the
 [ReplSetConfig](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/repl_set_config.h#L110-L547)
 class, which is serialized as a BSON object and stored durably in the `local.system.replset`
 collection on each replica set node.
@@ -1531,7 +1531,7 @@ reconfig. This constraint ensures that any adjacent configs satisfy quorum overl
 justification of why this is true in the Raft thesis section referenced above. If a replica set
 transitions between many configs over time, however, quorum overlap may not always be ensured
 between configs on different nodes, so there are two additional constraints that must be satisfied
-before a primary node installs a new configuration:
+before a primary node can install a new configuration:
 
 1. **[Config
 Commitment](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L3531-L3534)**:
@@ -1565,20 +1565,20 @@ must have some way of determining if one config is "newer" than another. Each co
 `term` and `version` field, and configs are totally ordered by the `(version, term)` pair, where
 `term` is compared first, and then `version`, analogous to the rules for  optime comparison. The
 `term` of a config is the term of the primary that originally created that config, and the `version`
-of a config is a monotonically increasing number assigned to each config. When executing a reconfig,
-the version of the new config must be greater than the version of the current config.  If the
-`(version, term)` pair of config A is greater than that of config B, then it is considered "newer"
-than config B. If a node hears about a newer config via a heartbeat from another node, it will
-[schedule a
+is a monotonically increasing number assigned to each config. When executing a reconfig, the version
+of the new config must be greater than the version of the current config.  If the `(version, term)`
+pair of config A is greater than that of config B, then it is considered "newer" than config B. If a
+node hears about a newer config via a heartbeat from another node, it will [schedule a
 heartbeat](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/replication_coordinator_impl.cpp#L5019-L5036)
-to fetch the config and then
+to fetch the config and
 [install](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/topology_coordinator.cpp#L892-L895)
 it locally.
 
 Config ordering also affects voting behavior. If a replica set node is a candidate for election in
 config `(vc, tc)`, then a prospective voter  with config `(v, t)` will only cast a vote for the
 candidate if `(vc, tc) = (v, t)`. For correctness, it would be acceptable for a candidate to cast
-its vote whenever `(vc, tc) >= (v, t)`, but the current implementation is more restrictive.
+its vote whenever `(vc, tc) >= (v, t)`, but the current implementation is more restrictive. For a
+description of the complete voting behavior, see the [Elections](#Elections) section.
 
 Note that force reconfigs set the new config's term to an [uninitialized term
 value](https://github.com/mongodb/mongo/blob/r4.4.0-rc6/src/mongo/db/repl/optime.h#L58-L59).
