@@ -336,6 +336,9 @@ public:
     void unlock() override;
     bool try_lock() override;
     StringData getName() const override;
+    bool allowNextThread();
+    void enableScheduleControl();
+    void disableScheduleControl();
 
     Mutex() : Mutex(defaultData()) {}
     explicit Mutex(std::shared_ptr<Data> data);
@@ -361,6 +364,7 @@ private:
 
     // The thread id that is allowed to acquire this mutex.
     std::thread::id _nextAllowedThread;
+    AtomicWord<bool> _enableScheduleControl{false};
 
 };
 }  // namespace latch_detail

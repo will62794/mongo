@@ -49,9 +49,9 @@ using namespace mongo;
 
 
 TEST(BSONObj, threads) {
-    Mutex lock = MONGO_MAKE_LATCH("interleavemutex");
+    Mutex lock = MONGO_MAKE_LATCH("testmutex");
     std::vector<int> history;
-    int iters = 4;
+    int iters = 3;
 
     AtomicWord<int> nextThread{0};
 
@@ -67,96 +67,145 @@ TEST(BSONObj, threads) {
 
 
     stdx::thread arbiter = stdx::thread([&] {
+        // Wait for both threads to start up fully.
+        mongo::sleepmillis(200);
+
         auto srand = SecureRandom();
         while (done1.load() + done2.load() < 2) {
-            // Wait until all threads are waiting to proceed.
-            logd("Arbiter waiting for both threads.");
-            // Wait for T1, only if it's still running.
-            while (!t1Waiting.load() && done1.load() == 0) {
-                mongo::sleepmicros(50);
-            }
-            // Wait for T2, only if it's still running.
-            while (!t2Waiting.load() && done2.load() == 0) {
-                mongo::sleepmicros(50);
+            // Wait 50ms, after which we assume that any runnable threads that need the mutex will
+            // now be blocked on it.
+//            logd("Arbiter waiting for both threads.");
+            mongo::sleepmillis(50);
+
+            // Let a random next thread to proceed and acquire the mutex.
+            bool threadWent = lock.allowNextThread();
+            if(!threadWent){
+                return;
             }
 
-            // Pick a random thread to proceed.
-            int next = srand.nextInt64(2) + 1;
-            // If either thread has finished, we must schedule the other thread.
-            if (done1.load()) {
-                next = 2;
-            }
-            if (done2.load()) {
-                next = 1;
-            }
-            logd("Arbiter letting thread {} proceed.", next);
+//            // If both threads are waiting, pick a random one to proceed.
+//            int next;
+//            if(t1Waiting.load()==1 && t2Waiting.load()==1){
+//                next = srand.nextInt64(2) + 1;
+//            } else{
+//                if(t1Waiting.load() || t2Waiting.load() == 1){
+//                    next = t1Waiting.load() == 1 ? 1 : 2;
+//                } else{
+//                    // Terminate if no threads are waiting.
+//                    return;
+//                }
+//            }
+
+
+//            // Wait until all threads are waiting to proceed.
+//            // Wait for T1, only if it's still running.
+//            while (!t1Waiting.load() && done1.load() == 0) {
+//                mongo::sleepmicros(50);
+//            }
+//            // Wait for T2, only if it's still running.
+//            while (!t2Waiting.load() && done2.load() == 0) {
+//                mongo::sleepmicros(50);
+//            }
+//
+//            // Pick a random thread to proceed.
+//            int next = srand.nextInt64(2) + 1;
+//            // If either thread has finished, we must schedule the other thread.
+//            if (done1.load()) {
+//                next = 2;
+//            }
+//            if (done2.load()) {
+//                next = 1;
+//            }
+//            logd("Arbiter letting thread {} proceed.", next);
 
             // Let the thread proceed.
-            nextThread.store(next);
+//            nextThread.store(next);
 
-            // Wait for the thread to have finished its critical section.
-            logd("Arbiter waiting for thread {} to complete critical section.", next);
-            while (doneCS.load() != 1) {
-                mongo::sleepmicros(50);
-            }
-
-            // Reset the flag.
-            doneCS.store(0);
+//            // Wait for the thread to have finished its critical section.
+//            logd("Arbiter waiting for thread {} to complete critical section.", next);
+//            while (doneCS.load() != 1) {
+//                mongo::sleepmicros(50);
+//            }
+//
+//            // Reset the flag.
+//            doneCS.store(0);
         }
     });
+
+//    // Start two threads that each push a value to a history vector inside a critical section some
+//    // number of times. The end state of the vector represents the interleaving of the two threads
+//    // for that execution.
+//    stdx::thread t1 = stdx::thread([&] {
+//        for (int i = 0; i < iters; i++) {
+//            // Wait for your turn.
+//            t1Waiting.store(1);
+//            logd("T1 waiting to proceed. nextThread: {}", nextThread.load());
+//            while (nextThread.load() != 1) {
+//                mongo::sleepmicros(50);
+//            }
+//
+//            // We are now proceeding, so no longer waiting.
+//            t1Waiting.store(0);
+//
+//            // Reset so you don't get through immediately next time.
+//            nextThread.store(0);
+//
+//            lock.lock();
+//            logd("t1 pushing 1");
+//            history.push_back(1);
+//            lock.unlock();
+//
+//            logd("T1 completed critical section.");
+//            doneCS.store(1);
+//        }
+//
+//        done1.store(1);
+//    });
+//    stdx::thread t2 = stdx::thread([&] {
+//        for (int i = 0; i < iters; i++) {
+//            // Wait for your turn.
+//            t2Waiting.store(1);
+//            logd("T2 waiting to proceed. nextThread: {}", nextThread.load());
+//            while (nextThread.load() != 2) {
+//                mongo::sleepmicros(50);
+//            }
+//
+//            // We are now proceeding, so no longer waiting.
+//            t2Waiting.store(0);
+//
+//            // Reset so you don't get through immediately next time.
+//            nextThread.store(0);
+//
+//            lock.lock();
+//            logd("t2 pushing 2");
+//            history.push_back(2);
+//            lock.unlock();
+//            doneCS.store(1);
+//        }
+//
+//        done2.store(1);
+//    });
+
 
     // Start two threads that each push a value to a history vector inside a critical section some
     // number of times. The end state of the vector represents the interleaving of the two threads
     // for that execution.
     stdx::thread t1 = stdx::thread([&] {
         for (int i = 0; i < iters; i++) {
-            // Wait for your turn.
-            t1Waiting.store(1);
-            logd("T1 waiting to proceed. nextThread: {}", nextThread.load());
-            while (nextThread.load() != 1) {
-                mongo::sleepmicros(50);
-            }
-
-            // We are now proceeding, so no longer waiting.
-            t1Waiting.store(0);
-
-            // Reset so you don't get through immediately next time.
-            nextThread.store(0);
-
             lock.lock();
-            logd("t1 pushing 1");
+            logd("t1 pushing");
             history.push_back(1);
             lock.unlock();
-
-            logd("T1 completed critical section.");
-            doneCS.store(1);
         }
-
-        done1.store(1);
     });
+
     stdx::thread t2 = stdx::thread([&] {
         for (int i = 0; i < iters; i++) {
-            // Wait for your turn.
-            t2Waiting.store(1);
-            logd("T2 waiting to proceed. nextThread: {}", nextThread.load());
-            while (nextThread.load() != 2) {
-                mongo::sleepmicros(50);
-            }
-
-            // We are now proceeding, so no longer waiting.
-            t2Waiting.store(0);
-
-            // Reset so you don't get through immediately next time.
-            nextThread.store(0);
-
             lock.lock();
-            logd("t2 pushing 2");
+            logd("t2 pushing");
             history.push_back(2);
             lock.unlock();
-            doneCS.store(1);
         }
-
-        done2.store(1);
     });
 
     t1.join();

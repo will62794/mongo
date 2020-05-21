@@ -2250,6 +2250,126 @@ TEST_F(ReplCoordTest, StepUpReconfigConcurrentWithForceHeartbeatReconfig) {
     ASSERT_EQUALS(getReplCoord()->getConfig().getConfigTerm(), OpTime::kUninitializedTerm);
 }
 
+TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
+    auto severityGuard = unittest::MinimumLoggedSeverityGuard{logv2::LogComponent::kReplication,
+                                                              logv2::LogSeverity::Debug(2)};
+    auto electionTimeoutMillis = 10;
+    assertStartSuccess(BSON("_id"
+                                    << "mySet"
+                                    << "settings" << BSON("electionTimeoutMillis" << electionTimeoutMillis)
+                                    << "version" << 2 << "term" << 0 << "members"
+                                    << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                             << "node1:12345")
+                                                          << BSON("_id" << 2 << "host"
+                                                                        << "node2:12345"))),
+                       HostAndPort("node1", 12345));
+    ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
+    ASSERT_EQUALS(getReplCoord()->getTerm(), 0);
+    replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
+    replCoordSetMyLastDurableOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
+
+    // Take control of mutex acquisition order.
+    getReplCoord()->getMutex().enableScheduleControl();
+
+    stdx::thread arbiter = stdx::thread([&] {
+        setThreadName("ARBITER");
+        logd("Starting arbiter thread");
+        // Wait for all threads to start up fully.
+        mongo::sleepmillis(300);
+        while (true) {
+            // Wait 50ms, after which we assume that any runnable threads that need the mutex will
+            // now be blocked on it.
+            mongo::sleepmillis(80);
+
+            // Let a random next thread to proceed and acquire the mutex.
+            logd("Going to let next thread proceed");
+            bool threadWent = getReplCoord()->getMutex().allowNextThread();
+            if(!threadWent){
+                logd("Arbiter quitting");
+                break;
+            }
+        }
+    });
+
+    stdx::thread hbReconfigThread([&] {
+
+        logd("### Starting hb reconfig thread.");
+        // Receive a heartbeat that schedules a new heartbeat to fetch a newer config.
+        ReplSetHeartbeatArgsV1 hbArgs;
+        auto rsConfig = getReplCoord()->getConfig();
+        hbArgs.setConfigVersion(3);  // simulate a newer config version.
+        hbArgs.setConfigTerm(0);     // force config.
+        hbArgs.setSetName(rsConfig.getReplSetName());
+        hbArgs.setSenderHost(HostAndPort("node2", 12345));
+
+        hbArgs.setSenderId(2);
+        hbArgs.setTerm(0);
+        ASSERT(hbArgs.isInitialized());
+
+        ReplSetHeartbeatResponse response;
+        ASSERT_OK(getReplCoord()->processHeartbeatV1(hbArgs, &response));
+
+        // Schedule a response with a newer config.
+        auto newerConfigVersion = 3;
+        auto newerConfig = BSON("_id"
+                                        << "mySet"
+                                        << "settings"
+                                        << BSON("electionTimeoutMillis" << electionTimeoutMillis)
+                                        << "version" << newerConfigVersion << "term" << 0 << "members"
+                                        << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                                 << "node1:12345")
+                                                              << BSON("_id" << 2 << "host"
+                                                                            << "node2:12345")));
+
+        //        auto net = getNet();
+        //        net->enterNetwork();
+        //        auto noi = net->getNextReadyRequest();
+        //        auto& request = noi->getRequest();
+
+        //        ReplSetHeartbeatArgsV1 args;
+        //        ASSERT_OK(args.initialize(request.cmdObj));
+
+        OpTime lastApplied(Timestamp(100, 1), 0);
+        ReplSetHeartbeatResponse hbResp;
+        rsConfig = ReplSetConfig::parse(newerConfig);
+        hbResp.setConfig(rsConfig);
+        hbResp.setSetName(rsConfig.getReplSetName());
+        hbResp.setState(MemberState::RS_SECONDARY);
+        hbResp.setConfigVersion(rsConfig.getConfigVersion());
+        hbResp.setConfigTerm(rsConfig.getConfigTerm());
+        hbResp.setAppliedOpTimeAndWallTime(
+                {lastApplied, Date_t() + Seconds(lastApplied.getSecs())});
+        hbResp.setDurableOpTimeAndWallTime(
+                {lastApplied, Date_t() + Seconds(lastApplied.getSecs())});
+
+        logd("### Running response to heartbeat.");
+        getReplCoord()->handleHeartbeatResponse_forTest(hbResp.toBSON(), 1, Milliseconds(10));
+
+        //        logd("### Scheduling response to heartbeat.");
+        //        net->scheduleResponse(noi, net->now(), makeResponseStatus(hbResp.toBSON()));
+        //        net->exitNetwork();
+        //
+        //        net->enterNetwork();
+        //        logd("### Running ready network ops.");
+        //        net->runReadyNetworkOperations();
+        //        net->exitNetwork();
+        //        logd("### Ran ready network ops.");
+    });
+
+
+    logd("### Starting election.");
+    simulateSuccessfulV1Election();
+
+    logd("### Waiting for hb reconfig completion.");
+    hbReconfigThread.join();
+
+    logd("### Waiting for arbiter thread completion.");
+    arbiter.join();
+
+    getReplCoord()->getMutex().disableScheduleControl();
+
+}
+
 }  // anonymous namespace
 }  // namespace repl
 }  // namespace mongo

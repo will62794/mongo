@@ -30,6 +30,7 @@
 #define MONGO_LOGV2_DEFAULT_COMPONENT ::mongo::logv2::LogComponent::kControl
 
 #include "mongo/platform/mutex.h"
+#include "mongo/platform/random.h"
 
 #include "mongo/base/init.h"
 #include "mongo/util/time_support.h"
@@ -49,55 +50,60 @@ Mutex::~Mutex() {
     _data->counts().destroyed.fetchAndAdd(1);
 }
 
+bool Mutex::allowNextThread() {
+    auto srand = SecureRandom();
+    // Pick a random thread in the waiters set and let it proceed.
+    _internalMutex.lock();
+    logd("Allow next thread. Waiters size : {}", _waiters.size());
+    if(_waiters.size()==0){
+        _internalMutex.unlock();
+        return false;
+    }
+
+    int64_t nextThreadIndex = srand.nextInt64(_waiters.size());
+    int currIdx = 0;
+    logd("Allowing next thread index: {}", nextThreadIndex);
+    for(auto tid : _waiters){
+        if(currIdx == nextThreadIndex){
+            _nextAllowedThread = tid;
+        }
+        currIdx++;
+    }
+    _internalMutex.unlock();
+    return true;
+}
+
+void Mutex::enableScheduleControl() {
+    _enableScheduleControl.store(true);
+}
+
+void Mutex::disableScheduleControl() {
+    _enableScheduleControl.store(false);
+}
+
 void Mutex::lock() {
     // Only order the mutex we care about.
-    if(getName() == "interleavemutex"){
-//        // Mark yourself as a waiter on this mutex.
-//        _internalMutex.lock();
-//        _waiters.insert(std::this_thread::get_id());
-//        _internalMutex.unlock();
-//
-//
-//
-//        // Wait until all threads have reached this barrier.
-//        int numThreads = 2;
-//        while(true){
-//            _internalMutex.lock();
-////            if(_nextAllowedThread == std::this_thread::get_id()){
-////                _internalMutex.unlock();
-////                break;
-////            }
-//
-////            if(_waiters.size()==numThreads){
-////                _internalMutex.unlock();
-////                break;
-////            }
-//            _internalMutex.unlock();
-//            mongo::sleepmillis(2);
-//        }
-//
-//        logd("2 threads now waiting on mutex.");
+    if(getName() == "ReplicationCoordinatorImpl::_mutex" && _enableScheduleControl.load()){
+        // Mark yourself as a waiter on this mutex.
+        _internalMutex.lock();
+        _waiters.insert(std::this_thread::get_id());
+        logd("Added self to waiter set. Num waiters: {}", _waiters.size());
+        _internalMutex.unlock();
 
-        // Now that we know all threads have reached this barrier, we pick one of the waiting threads to
-        // acquire the mutex. If we are the next allowed thread, don't sleep. Otherwise, sleep for
-        // a short period of time and then proceed to grab the mutex.
-
-//        while(true){
-//            _internalMutex.lock();
-//            // If we are now allowed to proceed, then proceed to acquire the mutex.
-//            if(_allowedToProceed.find(std::this_thread::get_id()) != _allowedToProceed.end()){
-//
-//            }
-//
-//
-//            if(_waiters.size()==numThreads){
-//                _internalMutex.unlock();
-//                break;
-//            }
-//            _internalMutex.unlock();
-//            mongo::sleepmillis(2);
-//        }
-
+        // Wait until you are allowed to proceed.
+        while(true){
+            _internalMutex.lock();
+            if(_nextAllowedThread == std::this_thread::get_id()){
+                // Reset the flag before proceeding.
+                _nextAllowedThread = std::thread::id();
+                _waiters.erase(std::this_thread::get_id());
+                logd("I am proceeding to acquire mutex.");
+                _internalMutex.unlock();
+                break;
+            }
+            _internalMutex.unlock();
+            mongo::sleepmicros(100);
+        }
     }
 
     if (_mutex.try_lock()) {

@@ -476,6 +476,8 @@ public:
      */
     void waitForStepDownAttempt_forTest();
 
+    Mutex& getMutex();
+
 private:
     using CallbackFn = executor::TaskExecutor::CallbackFn;
 

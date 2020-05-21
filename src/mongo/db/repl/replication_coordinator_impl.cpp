@@ -2520,6 +2520,10 @@ size_t ReplicationCoordinatorImpl::AutoGetRstlForStepUpStepDown::getUserOpsKille
     return _userOpsKilled;
 }
 
+Mutex& ReplicationCoordinatorImpl::getMutex(){
+    return _mutex;
+}
+
 void ReplicationCoordinatorImpl::AutoGetRstlForStepUpStepDown::incrementUserOpsKilled(size_t val) {
     _userOpsKilled += val;
 }
