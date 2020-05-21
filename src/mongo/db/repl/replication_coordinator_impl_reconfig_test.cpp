@@ -2252,7 +2252,7 @@ TEST_F(ReplCoordTest, StepUpReconfigConcurrentWithForceHeartbeatReconfig) {
 
 TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
     auto severityGuard = unittest::MinimumLoggedSeverityGuard{logv2::LogComponent::kReplication,
-                                                              logv2::LogSeverity::Debug(2)};
+                                                              logv2::LogSeverity::Debug(3)};
     auto electionTimeoutMillis = 10;
     assertStartSuccess(BSON("_id"
                                     << "mySet"
@@ -2267,19 +2267,51 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
     ASSERT_EQUALS(getReplCoord()->getTerm(), 0);
     replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
     replCoordSetMyLastDurableOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
+    auto rsConfig = getReplCoord()->getConfig();
+    auto electionTime = getReplCoord()->getElectionTimeout_forTest();
+    electionTime = electionTime + Milliseconds(1000);
+    NetworkInterfaceMock* net = getNet();
+
+    // Respond to a few heartbeats first.
+    for(int i=0;i<1;i++){
+        getNet()->enterNetwork();
+        net->runUntil(electionTime);
+        const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
+        const RemoteCommandRequest& request = noi->getRequest();
+        LOGV2(215240159,
+              "{request_target} processing {request_cmdObj}",
+              "request_target"_attr = request.target.toString(),
+              "request_cmdObj"_attr = request.cmdObj);
+        ReplSetHeartbeatArgsV1 hbArgs;
+        Status status = hbArgs.initialize(request.cmdObj);
+        if (status.isOK()) {
+            ReplSetHeartbeatResponse hbResp;
+            hbResp.setSetName(rsConfig.getReplSetName());
+            hbResp.setState(MemberState::RS_SECONDARY);
+            // The smallest valid optime in PV1.
+            OpTime opTime(Timestamp(), 0);
+            hbResp.setAppliedOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
+            hbResp.setDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
+            hbResp.setConfigVersion(rsConfig.getConfigVersion());
+            net->scheduleResponse(noi, net->now(), makeResponseStatus(hbResp.toBSON()));
+        }
+        getNet()->exitNetwork();
+    }
+
 
     // Take control of mutex acquisition order.
+    logd("#####################3 Enabling schedule control. ###############");
     getReplCoord()->getMutex().enableScheduleControl();
 
     stdx::thread arbiter = stdx::thread([&] {
         setThreadName("ARBITER");
         logd("Starting arbiter thread");
         // Wait for all threads to start up fully.
-        mongo::sleepmillis(300);
+        mongo::sleepmillis(200);
         while (true) {
             // Wait 50ms, after which we assume that any runnable threads that need the mutex will
             // now be blocked on it.
-            mongo::sleepmillis(80);
+            mongo::sleepmillis(30);
 
             // Let a random next thread to proceed and acquire the mutex.
             logd("Going to let next thread proceed");
@@ -2292,11 +2324,11 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
     });
 
     stdx::thread hbReconfigThread([&] {
+        setThreadName("hbReconfig");
 
         logd("### Starting hb reconfig thread.");
         // Receive a heartbeat that schedules a new heartbeat to fetch a newer config.
         ReplSetHeartbeatArgsV1 hbArgs;
-        auto rsConfig = getReplCoord()->getConfig();
         hbArgs.setConfigVersion(3);  // simulate a newer config version.
         hbArgs.setConfigTerm(0);     // force config.
         hbArgs.setSetName(rsConfig.getReplSetName());
@@ -2344,21 +2376,89 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
 
         logd("### Running response to heartbeat.");
         getReplCoord()->handleHeartbeatResponse_forTest(hbResp.toBSON(), 1, Milliseconds(10));
-
-        //        logd("### Scheduling response to heartbeat.");
-        //        net->scheduleResponse(noi, net->now(), makeResponseStatus(hbResp.toBSON()));
-        //        net->exitNetwork();
-        //
-        //        net->enterNetwork();
-        //        logd("### Running ready network ops.");
-        //        net->runReadyNetworkOperations();
-        //        net->exitNetwork();
-        //        logd("### Ran ready network ops.");
     });
 
 
     logd("### Starting election.");
-    simulateSuccessfulV1Election();
+
+    ////// ELECTION START. /////
+
+    ReplicationCoordinatorImpl* replCoord = getReplCoord();
+    bool hasReadyRequests = true;
+    // Process requests until we're primary and consume the heartbeats for the notification
+    // of election win.
+//    while (!replCoord->getMemberState().primary() || hasReadyRequests) {
+    int voteResponses = 0;
+    while (voteResponses < 2 || hasReadyRequests) {
+//        LOGV2(215230055,
+//              "Waiting on network in state {replCoord_getMemberState}",
+//              "replCoord_getMemberState"_attr = replCoord->getMemberState());
+        getNet()->enterNetwork();
+//        electionTime = getReplCoord()->getElectionTimeout_forTest();
+        if (net->now() < electionTime) {
+            net->runUntil(electionTime);
+        }
+        const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
+        const RemoteCommandRequest& request = noi->getRequest();
+        LOGV2(215240155,
+              "{request_target} processing {request_cmdObj}",
+              "request_target"_attr = request.target.toString(),
+              "request_cmdObj"_attr = request.cmdObj);
+        ReplSetHeartbeatArgsV1 hbArgs;
+        Status status = hbArgs.initialize(request.cmdObj);
+        if (status.isOK()) {
+            ReplSetHeartbeatResponse hbResp;
+            hbResp.setSetName(rsConfig.getReplSetName());
+            hbResp.setState(MemberState::RS_SECONDARY);
+            // The smallest valid optime in PV1.
+            OpTime opTime(Timestamp(), 0);
+            hbResp.setAppliedOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
+            hbResp.setDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
+            hbResp.setConfigVersion(rsConfig.getConfigVersion());
+            net->scheduleResponse(noi, net->now(), makeResponseStatus(hbResp.toBSON()));
+        } else if (request.cmdObj.firstElement().fieldNameStringData() == "replSetRequestVotes") {
+            net->scheduleResponse(
+                    noi,
+                    net->now(),
+                    makeResponseStatus(BSON("ok" << 1 << "reason"
+                                                 << ""
+                                                 << "term" << request.cmdObj["term"].Long()
+                                                 << "voteGranted" << true)));
+            voteResponses++;
+        } else {
+//            LOGV2_ERROR(21528555,
+//                        "Black holing unexpected request to {request_target}: {request_cmdObj}",
+//                        "request_target"_attr = request.target,
+//                        "request_cmdObj"_attr = request.cmdObj);
+            net->blackHole(noi);
+        }
+        net->runReadyNetworkOperations();
+        hasReadyRequests = net->hasReadyRequests();
+        getNet()->exitNetwork();
+    }
+
+    const auto opCtx = makeOperationContext();
+
+    if(replCoord->getMemberState().primary()){
+        signalDrainComplete(opCtx.get());
+    }
+
+
+//    ASSERT(replCoord->getApplierState() == ReplicationCoordinator::ApplierState::Draining);
+//    ASSERT(replCoord->getMemberState().primary()) << replCoord->getMemberState().toString();
+
+//    auto imResponse = replCoord->awaitIsMasterResponse(opCtx, {}, boost::none, boost::none);
+//    ASSERT_FALSE(imResponse->isMaster()) << imResponse->toBSON().toString();
+//    ASSERT_TRUE(imResponse->isSecondary()) << imResponse->toBSON().toString();
+
+    ////// ELECTION END /////
+
+
+
+//    simulateSuccessfulV1ElectionAt(electionTimeoutWhen);
+
+
+
 
     logd("### Waiting for hb reconfig completion.");
     hbReconfigThread.join();
