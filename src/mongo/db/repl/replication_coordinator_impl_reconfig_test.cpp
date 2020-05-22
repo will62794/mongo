@@ -2433,8 +2433,12 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
         LOGV2(215230055,
               "Waiting on network in state {replCoord_getMemberState}",
               "replCoord_getMemberState"_attr = replCoord->getMemberState());
+
+        logd("Getting election timeout for test.");
+        electionTime = getReplCoord()->getElectionTimeout_forTest();
+        logd("Election entering network.");
         getNet()->enterNetwork();
-//        electionTime = getReplCoord()->getElectionTimeout_forTest();
+        logd("Running election clock");
         if (net->now() < electionTime) {
             net->runUntil(electionTime);
         }
