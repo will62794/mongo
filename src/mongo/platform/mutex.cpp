@@ -50,11 +50,18 @@ Mutex::~Mutex() {
     _data->counts().destroyed.fetchAndAdd(1);
 }
 
+int Mutex::numWaiters(){
+    _internalMutex.lock();
+    int size =  _waiters.size();
+    _internalMutex.unlock();
+    return size;
+}
+
 bool Mutex::allowNextThread() {
     auto srand = SecureRandom();
     // Pick a random thread in the waiters set and let it proceed.
     _internalMutex.lock();
-    logd("Allow next thread. Waiters size : {}", _waiters.size());
+//    logd("Allow next thread. Waiters size : {}", _waiters.size());
     if(_waiters.size()==0){
         _internalMutex.unlock();
         return false;
@@ -97,7 +104,7 @@ void Mutex::lock() {
                 // Reset the flag before proceeding.
                 _nextAllowedThread = std::thread::id();
                 _waiters.erase(std::this_thread::get_id());
-                logd("I am proceeding to acquire mutex.");
+                logd("ACQUIRE mutex.");
                 _internalMutex.unlock();
                 break;
             }
@@ -121,6 +128,9 @@ void Mutex::lock() {
 void Mutex::unlock() {
     _onUnlock();
     _isLocked = false;
+    if(getName() == "ReplicationCoordinatorImpl::_mutex" && _enableScheduleControl.load()){
+        logd("RELEASE mutex.");
+    }
     _mutex.unlock();
 }
 bool Mutex::try_lock() {
@@ -188,6 +198,11 @@ void Mutex::_onUnlock() noexcept {
         listener->onUnlock(_data->identity());
     }
 }
+
+int Mutex::numReleases() {
+    return _data->counts().released.load();
+}
+
 
 /**
  * Any MONGO_INITIALIZER that adds a DiagnosticListener will want to list

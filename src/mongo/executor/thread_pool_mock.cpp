@@ -39,6 +39,8 @@
 namespace mongo {
 namespace executor {
 
+AtomicWord<bool> ThreadPoolMock::tpMockIsIdle{true};
+
 ThreadPoolMock::ThreadPoolMock(NetworkInterfaceMock* net, int32_t prngSeed, Options options)
     : _options(std::move(options)), _prng(prngSeed), _net(net) {}
 
@@ -65,11 +67,16 @@ void ThreadPoolMock::startup() {
         while (!_joining) {
             if (_tasks.empty()) {
                 lk.unlock();
+                ThreadPoolMock::tpMockIsIdle.store(true);
+                logd("ThreadPoolMock now idle.");
                 _net->waitForWork();
                 lk.lock();
+                ThreadPoolMock::tpMockIsIdle.store(false);
+                logd("ThreadPoolMock no longer idle.");
                 continue;
             }
 
+            logd("ThreadPoolMock consuming one task.");
             _consumeOneTask(lk);
         }
         LOGV2_DEBUG(22604, 1, "Done consuming tasks");

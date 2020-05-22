@@ -337,8 +337,10 @@ public:
     bool try_lock() override;
     StringData getName() const override;
     bool allowNextThread();
+    int numWaiters();
     void enableScheduleControl();
     void disableScheduleControl();
+    int numReleases();
 
     Mutex() : Mutex(defaultData()) {}
     explicit Mutex(std::shared_ptr<Data> data);

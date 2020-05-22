@@ -29,6 +29,7 @@
 
 #define MONGO_LOGV2_DEFAULT_COMPONENT ::mongo::logv2::LogComponent::kDefault
 
+#include <mongo/executor/thread_pool_mock.h>
 #include "mongo/platform/basic.h"
 
 #include "mongo/db/jsobj.h"
@@ -45,6 +46,7 @@
 #include "mongo/unittest/log_test.h"
 #include "mongo/unittest/unittest.h"
 #include "mongo/util/fail_point.h"
+#include "mongo/executor/thread_pool_mock.h"
 
 namespace mongo {
 namespace repl {
@@ -2298,10 +2300,26 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
         getNet()->exitNetwork();
     }
 
+    // Data to keep for controlling concurrency.
+    AtomicWord<bool> hbThreadDone{false};
+    AtomicWord<bool> electionThreadDone{false};
 
     // Take control of mutex acquisition order.
-    logd("#####################3 Enabling schedule control. ###############");
+    logd("##################### Enabling schedule control. ###############");
     getReplCoord()->getMutex().enableScheduleControl();
+
+    auto waitForAllThreads = [&](){
+        // Consider the set of runnable threads i.e. those not terminated or blocking on work. Wait
+        // for all of them to hit the synchronization point before proceeding.
+        int numRunnable = 0;
+        numRunnable += (hbThreadDone.load() ? 0 : 1);
+        numRunnable += (electionThreadDone.load() ? 0 : 1);
+        numRunnable += (executor::ThreadPoolMock::tpMockIsIdle.load() ? 0 : 1);
+        logd("Waiting for {} runnable threads.", numRunnable);
+        while(getReplCoord()->getMutex().numWaiters() < numRunnable){
+            mongo::sleepmicros(100);
+        }
+    };
 
     stdx::thread arbiter = stdx::thread([&] {
         setThreadName("ARBITER");
@@ -2309,16 +2327,25 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
         // Wait for all threads to start up fully.
         mongo::sleepmillis(200);
         while (true) {
-            // Wait 50ms, after which we assume that any runnable threads that need the mutex will
-            // now be blocked on it.
-            mongo::sleepmillis(30);
+            // Wait for all runnable threads to be blocked on the mutex.
+            waitForAllThreads();
 
-            // Let a random next thread to proceed and acquire the mutex.
-            logd("Going to let next thread proceed");
+            // Record the current number of mutex releases.
+            int initNumReleases = getReplCoord()->getMutex().numReleases();
+
+            // Now we know that all runnable threads are blocked at the mutex synchronization point.
+            // Now we just pick one of them to proceed. We  let a random next thread to proceed and
+            // acquire the mutex.
+//            logd("Going to let next thread proceed");
             bool threadWent = getReplCoord()->getMutex().allowNextThread();
             if(!threadWent){
                 logd("Arbiter quitting");
                 break;
+            }
+
+            // Wait until the thread finished its critical section.
+            while(getReplCoord()->getMutex().numReleases() == initNumReleases){
+                mongo::sleepmicros(100);
             }
         }
     });
@@ -2353,13 +2380,18 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
                                                               << BSON("_id" << 2 << "host"
                                                                             << "node2:12345")));
 
-        //        auto net = getNet();
-        //        net->enterNetwork();
-        //        auto noi = net->getNextReadyRequest();
-        //        auto& request = noi->getRequest();
+        auto net = getNet();
 
-        //        ReplSetHeartbeatArgsV1 args;
-        //        ASSERT_OK(args.initialize(request.cmdObj));
+//        logd("### Going into network.");
+//        net->enterNetwork();
+
+//        logd("### Getting next heartbeat request from network.");
+//        auto noi = net->getNextReadyRequest();
+//        auto& request = noi->getRequest();
+
+
+//        ReplSetHeartbeatArgsV1 args;
+//        ASSERT_OK(args.initialize(request.cmdObj));
 
         OpTime lastApplied(Timestamp(100, 1), 0);
         ReplSetHeartbeatResponse hbResp;
@@ -2374,8 +2406,16 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
         hbResp.setDurableOpTimeAndWallTime(
                 {lastApplied, Date_t() + Seconds(lastApplied.getSecs())});
 
-        logd("### Running response to heartbeat.");
+        logd("### Scheduling response to heartbeat.");
+//        net->scheduleResponse(noi, net->now(), makeResponseStatus(hbResp.toBSON()));
+//        net->runReadyNetworkOperations();
+//        net->exitNetwork();
+
         getReplCoord()->handleHeartbeatResponse_forTest(hbResp.toBSON(), 1, Milliseconds(10));
+        net->signalWorkAvailable();
+
+        logd("### Heartbeat thread done.");
+        hbThreadDone.store(true);
     });
 
 
@@ -2387,17 +2427,18 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
     bool hasReadyRequests = true;
     // Process requests until we're primary and consume the heartbeats for the notification
     // of election win.
-//    while (!replCoord->getMemberState().primary() || hasReadyRequests) {
+    while (!replCoord->getMemberState().primary() || hasReadyRequests) {
     int voteResponses = 0;
-    while (voteResponses < 2 || hasReadyRequests) {
-//        LOGV2(215230055,
-//              "Waiting on network in state {replCoord_getMemberState}",
-//              "replCoord_getMemberState"_attr = replCoord->getMemberState());
+//    while (voteResponses < 2 || hasReadyRequests) {
+        LOGV2(215230055,
+              "Waiting on network in state {replCoord_getMemberState}",
+              "replCoord_getMemberState"_attr = replCoord->getMemberState());
         getNet()->enterNetwork();
 //        electionTime = getReplCoord()->getElectionTimeout_forTest();
         if (net->now() < electionTime) {
             net->runUntil(electionTime);
         }
+        logd("Election thread getting next request");
         const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
         const RemoteCommandRequest& request = noi->getRequest();
         LOGV2(215240155,
@@ -2443,9 +2484,11 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
         signalDrainComplete(opCtx.get());
     }
 
+    ASSERT(replCoord->getMemberState().primary()) << replCoord->getMemberState().toString();
+
+    electionThreadDone.store(true);
 
 //    ASSERT(replCoord->getApplierState() == ReplicationCoordinator::ApplierState::Draining);
-//    ASSERT(replCoord->getMemberState().primary()) << replCoord->getMemberState().toString();
 
 //    auto imResponse = replCoord->awaitIsMasterResponse(opCtx, {}, boost::none, boost::none);
 //    ASSERT_FALSE(imResponse->isMaster()) << imResponse->toBSON().toString();
@@ -2453,12 +2496,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
 
     ////// ELECTION END /////
 
-
-
 //    simulateSuccessfulV1ElectionAt(electionTimeoutWhen);
-
-
-
 
     logd("### Waiting for hb reconfig completion.");
     hbReconfigThread.join();
