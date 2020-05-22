@@ -2252,6 +2252,83 @@ TEST_F(ReplCoordTest, StepUpReconfigConcurrentWithForceHeartbeatReconfig) {
     ASSERT_EQUALS(getReplCoord()->getConfig().getConfigTerm(), OpTime::kUninitializedTerm);
 }
 
+TEST_F(ReplCoordTest, SimpleElection) {
+    auto severityGuard = unittest::MinimumLoggedSeverityGuard{logv2::LogComponent::kReplication,
+                                                              logv2::LogSeverity::Debug(3)};
+    auto electionTimeoutMillis = 10;
+    assertStartSuccess(BSON("_id"
+                                    << "mySet"
+                                    << "settings"
+                                    << BSON("electionTimeoutMillis" << electionTimeoutMillis)
+                                    << "version" << 2 << "term" << 0 << "members"
+                                    << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                             << "node1:12345")
+                                                          << BSON("_id" << 2 << "host"
+                                                                        << "node2:12345"))),
+                       HostAndPort("node1", 12345));
+    ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
+    ASSERT_EQUALS(getReplCoord()->getTerm(), 0);
+    replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
+    replCoordSetMyLastDurableOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
+    auto rsConfig = getReplCoord()->getConfig();
+    auto electionTime = getReplCoord()->getElectionTimeout_forTest();
+    electionTime = electionTime + Milliseconds(1000);
+    NetworkInterfaceMock *net = getNet();
+
+    // Data to keep for controlling concurrency.
+    AtomicWord<bool> electionThreadDone{false};
+
+    // Take control of mutex acquisition order.
+    logd("##################### Enabling schedule control. ###############");
+    getReplCoord()->getMutex().enableScheduleControl();
+
+    auto waitForAllThreads = [&]() {
+        // Consider the set of runnable threads i.e. those not terminated or blocking on work. Wait
+        // for all of them to hit the synchronization point before proceeding.
+        int numRunnable = 0;
+        numRunnable += (electionThreadDone.load() ? 0 : 1);
+        numRunnable += (executor::ThreadPoolMock::tpMockIsIdle.load() ? 0 : 1);
+        logd("Waiting for {} runnable threads.", numRunnable);
+        while (getReplCoord()->getMutex().numWaiters() < numRunnable) {
+            mongo::sleepmicros(100);
+        }
+    };
+
+    stdx::thread arbiter = stdx::thread([&] {
+        setThreadName("ARBITER");
+        logd("Starting arbiter thread");
+        // Wait for all threads to start up fully.
+        mongo::sleepmillis(200);
+        while (true) {
+            // Wait for all runnable threads to be blocked on the mutex.
+            waitForAllThreads();
+
+            // Record the current number of mutex releases.
+            int initNumReleases = getReplCoord()->getMutex().numReleases();
+
+            // Now we know that all runnable threads are blocked at the mutex synchronization point.
+            // Now we just pick one of them to proceed. We  let a random next thread to proceed and
+            // acquire the mutex.
+            bool threadWent = getReplCoord()->getMutex().allowNextThread();
+            if (!threadWent) {
+                logd("Arbiter quitting");
+                break;
+            }
+
+            // Wait until the thread finished its critical section.
+            while (getReplCoord()->getMutex().numReleases() == initNumReleases) {
+                mongo::sleepmicros(100);
+            }
+        }
+    });
+
+    simulateSuccessfulV1Election();
+    electionThreadDone.store(true);
+    arbiter.join();
+
+}
+
+
 TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrent) {
     auto severityGuard = unittest::MinimumLoggedSeverityGuard{logv2::LogComponent::kReplication,
                                                               logv2::LogSeverity::Debug(3)};
