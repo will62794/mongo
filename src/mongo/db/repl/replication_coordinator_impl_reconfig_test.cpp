@@ -2712,7 +2712,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         while (true) {
             // Wait for all runnable threads to be blocked on the mutex.
 //            waitForAllThreads();
-            mongo::sleepmillis(20);
+            mongo::sleepmillis(10);
 
             // Record the current number of mutex releases.
             int initNumReleases = getReplCoord()->getMutex().numReleases();
@@ -2809,7 +2809,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         getNet()->enterNetwork();
 
         // Don't respond to requests indefinitely.
-        if (responses > 5) {
+        if (responses > 7) {
             break;
         }
 

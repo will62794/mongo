@@ -1147,7 +1147,7 @@ void ReplicationCoordinatorImpl::signalDrainComplete(OperationContext* opCtx,
 
     stdx::unique_lock<Latch> lk(_mutex);
     if (_applierState != ApplierState::Draining) {
-        logd("Exiting drain mode immediately since applier not in draining 1.");
+        logd("Exiting drain mode immediately since applier not in draining 1. running: {}", _applierState == ApplierState::Running);
         return;
     }
     lk.unlock();
