@@ -1234,6 +1234,12 @@ void ReplicationCoordinatorImpl::signalDrainComplete(OperationContext* opCtx,
         invariant(status);
     }
 
+    // For safety of reconfig, since we must commit a config in our own term before executing a
+    // reconfig, so we should never have a config in an older term. If the current config was
+    // installed via a force reconfig, we aren't concerned about this safety guarantee.
+    invariant(_rsConfig.getConfigTerm() == OpTime::kUninitializedTerm ||
+              _rsConfig.getConfigTerm() == _topCoord->getTerm());
+
     // Must calculate the commit level again because firstOpTimeOfMyTerm wasn't set when we logged
     // our election in onTransitionToPrimary(), above.
     _updateLastCommittedOpTimeAndWallTime(lk);

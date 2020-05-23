@@ -66,13 +66,20 @@ void ThreadPoolMock::startup() {
         LOGV2_DEBUG(22603, 1, "Starting to consume tasks");
         while (!_joining) {
             if (_tasks.empty()) {
-                lk.unlock();
+                logd("ThreadPoolMock now waiting on work.");
                 ThreadPoolMock::tpMockIsIdle.store(true);
-                logd("ThreadPoolMock now idle.");
-                _net->waitForWork();
-                lk.lock();
+                while(_tasks.empty()/* && !_inShutdown*/){
+                    lk.unlock();
+                    mongo::sleepmillis(5);
+                    lk.lock();
+//                    logd("ThreadPoolMock has {} tasks.", _tasks.size());
+                }
                 ThreadPoolMock::tpMockIsIdle.store(false);
-                logd("ThreadPoolMock no longer idle.");
+//                lk.unlock();
+//                ThreadPoolMock::tpMockIsIdle.store(true);
+//                _net->waitForWork();
+//                lk.lock();
+//                ThreadPoolMock::tpMockIsIdle.store(false);
                 continue;
             }
 
@@ -125,7 +132,7 @@ void ThreadPoolMock::_shutdown(stdx::unique_lock<Latch>& lk) {
     LOGV2_DEBUG(22605, 1, "Shutting down pool");
 
     _inShutdown = true;
-    _net->signalWorkAvailable();
+//    _net->signalWorkAvailable();
 }
 
 void ThreadPoolMock::_join(stdx::unique_lock<Latch>& lk) {

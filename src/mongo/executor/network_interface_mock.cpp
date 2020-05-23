@@ -248,9 +248,10 @@ bool NetworkInterfaceMock::inShutdown() const {
 
 void NetworkInterfaceMock::enterNetwork() {
     stdx::unique_lock<stdx::mutex> lk(_mutex);
-    while (!_isNetworkThreadRunnable_inlock()) {
-        _shouldWakeNetworkCondition.wait(lk);
-    }
+//    while (!_isNetworkThreadRunnable_inlock()) {
+//        logd("Network waiting to wake up.");
+//        _shouldWakeNetworkCondition.wait(lk);
+//    }
     _currentlyRunning = kNetworkThread;
     _waitingToRunMask &= ~kNetworkThread;
 }
@@ -608,9 +609,10 @@ void NetworkInterfaceMock::_runReadyNetworkOperations_inlock(stdx::unique_lock<s
     }
     _shouldWakeExecutorCondition.notify_one();
     _currentlyRunning = kNoThread;
-    while (!_isNetworkThreadRunnable_inlock()) {
-        _shouldWakeNetworkCondition.wait(*lk);
-    }
+//    while (!_isNetworkThreadRunnable_inlock()) {
+//        logd("Network now waiting on work.");
+//        _shouldWakeNetworkCondition.wait(*lk);
+//    }
     _currentlyRunning = kNetworkThread;
     _waitingToRunMask &= ~kNetworkThread;
 }
