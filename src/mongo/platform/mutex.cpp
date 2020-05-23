@@ -108,6 +108,10 @@ void Mutex::lock() {
         // Wait until you are allowed to proceed.
         while(true){
             _internalMutex.lock();
+            // If mutex interleaving is no longer being controlled, no need to wait.
+            if(!_enableScheduleControl.load()){
+                break;
+            }
             if(_nextAllowedThread == std::this_thread::get_id()){
                 // Reset the flag before proceeding.
                 _nextAllowedThread = std::thread::id();

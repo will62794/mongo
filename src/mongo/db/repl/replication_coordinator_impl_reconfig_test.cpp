@@ -128,7 +128,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
     //
     // Take control of mutex acquisition order.
     //
-    logd("#### Enabling schedule control. ####");
+    logd("######## Enabling schedule control. ########");
     auto& replMutex = getReplCoord()->getMutex();
     replMutex.enableScheduleControl();
 
@@ -162,23 +162,6 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
                getReplCoord()->isStepUpRunnable() && !stepUpDone.load()) {
             mongo::sleepmicros(100);
         }
-
-        //        if(!hbThreadDone.load()){
-        //            runnable.insert("hbReconfigThread");
-        //        }
-        //        if(mainThreadRunnable.load()){
-        //            runnable.insert("main");
-        //        }
-        //        if(!executor::ThreadPoolMock::tpMockIsIdle.load()){
-        //            runnable.insert("replexec");
-        //        }
-        //        if(!stepUpDone.load() && getReplCoord()->isStepUpRunnable()){
-        //            runnable.insert("stepUp");
-        //        }
-        //        logd("Waiting for {} runnable threads. runnables: {}", runnable.size(), runnable);
-        //        while (getReplCoord()->getMutex().numWaiters() < runnable.size()) {
-        //            mongo::sleepmicros(100);
-        //        }
     };
 
     // The arbiter thread is the "scheduler" thread i.e. it determines which thread gets to acquire
@@ -202,7 +185,6 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
             // acquire the mutex.
             bool threadWent = getReplCoord()->getMutex().allowNextThread();
             if (!threadWent) {
-                logd("Arbiter quitting");
                 break;
             }
 
@@ -211,6 +193,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
                 mongo::sleepmicros(100);
             }
         }
+        logd("### Arbiter quitting");
     });
 
     //
@@ -355,6 +338,8 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         logd("### Running drain mode.");
         const auto opCtx = makeOperationContext();
         signalDrainComplete(opCtx.get());
+    } else{
+        logd("### Skipping drain mode.");
     }
 
     mainThreadRunnable.store(false);
@@ -365,9 +350,9 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
 
     logd("### Waiting for arbiter thread completion.");
     arbiter.join();
+    logd("### Arbiter thread joined.");
 
-
-    logd("#### Disabling schedule control. ####");
+    logd("######## Disabling schedule control. ########");
     getReplCoord()->getMutex().disableScheduleControl();
 
     if (nowPrimary) {
