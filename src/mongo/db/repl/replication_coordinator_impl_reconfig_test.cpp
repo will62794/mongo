@@ -124,6 +124,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
     AtomicWord<bool> electionThreadDone{false};
     AtomicWord<bool> stepUpDone{false};
     AtomicWord<bool> mainThreadRunnable{false};
+    AtomicWord<bool> mainThreadDone{false};
 
     //
     // Take control of mutex acquisition order.
@@ -146,21 +147,6 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
             mongo::sleepmicros(100);
         }
 
-        logd("Waiting for main thread to be blocked or terminated");
-        while(true){
-            // Blocked on mutex.
-            if(inSet(replMutex.waiterThreadNames(), "main")){
-                logd("main is blocked on mutex");
-                break;
-            }
-            // Not runnable and no ready requests to process.
-            if(!mainThreadRunnable.load()){
-                logd("main is not runnable");
-                break;
-            }
-            mongo::sleepmicros(100);
-        }
-
         logd("Waiting for replexec thread to be blocked or terminated");
         while (true) {
             // Blocked on mutex.
@@ -172,6 +158,26 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
             if (executor::ThreadPoolMock::tpMockIsIdle.load() &&
                 executor::ThreadPoolMock::numTasks.load() == 0) {
                 logd("replexec is idle with no tasks");
+                break;
+            }
+            mongo::sleepmicros(100);
+        }
+
+        logd("Waiting for main thread to be blocked or terminated");
+        while(true){
+            // Blocked on mutex.
+            if(inSet(replMutex.waiterThreadNames(), "main")){
+                logd("main is blocked on mutex");
+                break;
+            }
+            // Not runnable and no ready requests to process.
+            if(!getNet()->hasReadyRequests()){
+                logd("main is not runnable");
+                break;
+            }
+
+            if(mainThreadDone.load()){
+                logd("main has terminated");
                 break;
             }
             mongo::sleepmicros(100);
@@ -313,10 +319,14 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
 
         // Wait for ready requests.
         logd("Waiting for next request");
-        while (!net->hasReadyRequests()) {
+        while(true){
             mainThreadRunnable.store(false);
-            mongo::sleepmillis(2);
+            if (net->hasReadyRequests()) {
+                break;
+            }
+            mongo::sleepmicros(100);
         }
+
         const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
         const RemoteCommandRequest& request = noi->getRequest();
         LOGV2(215240199,
@@ -367,6 +377,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
     }
 
     mainThreadRunnable.store(false);
+    mainThreadDone.store(true);
 
     logd("### Waiting for thread completions.");
     stepUpThread.join();

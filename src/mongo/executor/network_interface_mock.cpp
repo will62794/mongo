@@ -270,7 +270,7 @@ void NetworkInterfaceMock::exitNetwork() {
 
 bool NetworkInterfaceMock::hasReadyRequests() {
     stdx::lock_guard<stdx::mutex> lk(_mutex);
-    invariant(_currentlyRunning == kNetworkThread);
+//    invariant(_currentlyRunning == kNetworkThread);
     return _hasReadyRequests_inlock();
 }
 
