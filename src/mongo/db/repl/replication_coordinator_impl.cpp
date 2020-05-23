@@ -1147,6 +1147,7 @@ void ReplicationCoordinatorImpl::signalDrainComplete(OperationContext* opCtx,
 
     stdx::unique_lock<Latch> lk(_mutex);
     if (_applierState != ApplierState::Draining) {
+        logd("Exiting drain mode immediately since applier not in draining 1.");
         return;
     }
     lk.unlock();
@@ -1165,6 +1166,7 @@ void ReplicationCoordinatorImpl::signalDrainComplete(OperationContext* opCtx,
     // current term, and we're allowed to become the write master.
     if (_applierState != ApplierState::Draining ||
         !_topCoord->canCompleteTransitionToPrimary(termWhenBufferIsEmpty)) {
+        logd("Exiting drain mode immediately since applier not in draining 2.");
         return;
     }
     _applierState = ApplierState::Stopped;
@@ -1233,12 +1235,6 @@ void ReplicationCoordinatorImpl::signalDrainComplete(OperationContext* opCtx,
         }
         invariant(status);
     }
-
-    // For safety of reconfig, since we must commit a config in our own term before executing a
-    // reconfig, so we should never have a config in an older term. If the current config was
-    // installed via a force reconfig, we aren't concerned about this safety guarantee.
-    invariant(_rsConfig.getConfigTerm() == OpTime::kUninitializedTerm ||
-              _rsConfig.getConfigTerm() == _topCoord->getTerm());
 
     // Must calculate the commit level again because firstOpTimeOfMyTerm wasn't set when we logged
     // our election in onTransitionToPrimary(), above.
@@ -4149,7 +4145,7 @@ void ReplicationCoordinatorImpl::_postWonElectionUpdateMemberState(WithLock lk) 
     // Clear the sync source.
     _onFollowerModeStateChange();
     // Notify all secondaries of the election win.
-    _restartHeartbeats_inlock();
+//    _restartHeartbeats_inlock();
     invariant(!_catchupState);
     _catchupState = std::make_unique<CatchupState>(this);
     _catchupState->start_inlock();
@@ -5473,8 +5469,11 @@ Status ReplicationCoordinatorImpl::stepUpIfEligible(bool skipDryRun) {
         finishEvent = _electionFinishedEvent;
     }
     if (finishEvent.isValid()) {
+        logd("Step up waiting on finished event");
+        stepUpRunnable.store(false);
         _replExecutor->waitForEvent(finishEvent);
     }
+    stepUpRunnable.store(true);
     {
         // Step up is considered successful only if we are currently a primary and we are not in the
         // process of stepping down. If we know we are going to step down, we should fail the

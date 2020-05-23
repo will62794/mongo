@@ -68,7 +68,7 @@ void ThreadPoolMock::startup() {
             if (_tasks.empty()) {
                 logd("ThreadPoolMock now waiting on work.");
                 ThreadPoolMock::tpMockIsIdle.store(true);
-                while(_tasks.empty()/* && !_inShutdown*/){
+                while(_tasks.empty() && !_inShutdown){
                     lk.unlock();
                     mongo::sleepmillis(5);
                     lk.lock();

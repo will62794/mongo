@@ -412,6 +412,10 @@ public:
      */
     boost::optional<Date_t> getPriorityTakeover_forTest() const;
 
+    bool isStepUpRunnable(){
+        return stepUpRunnable.load();
+    }
+
     /**
      * Returns the scheduled time of the catchup takeover callback. If a catchup
      * takeover has not been scheduled, returns boost::none.
@@ -1486,6 +1490,7 @@ private:
 
     // Executor that drives the topology coordinator.
     std::unique_ptr<executor::TaskExecutor> _replExecutor;  // (S)
+    AtomicWord<bool> stepUpRunnable{true};  // (S)
 
     // Pointer to the ReplicationCoordinatorExternalState owned by this ReplicationCoordinator.
     std::unique_ptr<ReplicationCoordinatorExternalState> _externalState;  // (PS)

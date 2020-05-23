@@ -236,7 +236,7 @@ void NetworkInterfaceMock::shutdown() {
         iter->finishResponse();
     }
     lk.lock();
-    invariant(_currentlyRunning == kExecutorThread);
+//    invariant(_currentlyRunning == kExecutorThread);
     _currentlyRunning = kNoThread;
     _waitingToRunMask = kNetworkThread;
     _shouldWakeNetworkCondition.notify_one();

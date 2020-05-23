@@ -2657,7 +2657,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         }
         const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
         const RemoteCommandRequest& request = noi->getRequest();
-        LOGV2(215240159,
+        LOGV2(215240188,
               "{request_target} processing {request_cmdObj}",
               "request_target"_attr = request.target.toString(),
               "request_cmdObj"_attr = request.cmdObj);
@@ -2684,6 +2684,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
     AtomicWord<bool> hbThreadDone{false};
     AtomicWord<bool> electionThreadDone{false};
     AtomicWord<bool> stepUpDone{false};
+    AtomicWord<bool> mainThreadRunnable{false};
 
     // Take control of mutex acquisition order.
     logd("########### Enabling schedule control. ###########");
@@ -2694,9 +2695,9 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         // for all of them to hit the synchronization point before proceeding.
         int numRunnable = 0;
         numRunnable += (hbThreadDone.load() ? 0 : 1);
-        numRunnable += (electionThreadDone.load() ? 0 : 1);
+        numRunnable += (mainThreadRunnable.load() ? 1 : 0);
         numRunnable += (executor::ThreadPoolMock::tpMockIsIdle.load() ? 0 : 1);
-        numRunnable += (stepUpDone.load() ? 0 : 1);
+        numRunnable += (stepUpDone.load() || !getReplCoord()->isStepUpRunnable() ? 0 : 1);
         logd("Waiting for {} runnable threads.", numRunnable);
         while (getReplCoord()->getMutex().numWaiters() < numRunnable) {
             mongo::sleepmicros(100);
@@ -2710,7 +2711,8 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         mongo::sleepmillis(200);
         while (true) {
             // Wait for all runnable threads to be blocked on the mutex.
-            waitForAllThreads();
+//            waitForAllThreads();
+            mongo::sleepmillis(20);
 
             // Record the current number of mutex releases.
             int initNumReleases = getReplCoord()->getMutex().numReleases();
@@ -2795,37 +2797,36 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         stepUpDone.store(true);
     });
 
-    logd("### Starting election.");
-
-    ////// ELECTION START. /////
 
     ReplicationCoordinatorImpl* replCoord = getReplCoord();
     bool hasReadyRequests = true;
     // Process requests until we're primary and consume the heartbeats for the notification
     // of election win.
-    int voteResponses = 0;
+    responses = 0;
     while (!replCoord->getMemberState().primary() || hasReadyRequests) {
-        LOGV2(215230055, "Waiting on network");
-        logd("Election entering network.");
+        LOGV2(215230088, "Waiting on network");
+        logd("Entering network.");
         getNet()->enterNetwork();
-        //        logd("Running until election time: {}, now: {}", electionTime, net->now());
-        //        electionTime = getReplCoord()->getElectionTimeout_forTest();
-        //        if (net->now() < electionTime) {
-        //            net->runUntil(electionTime);
-        //        }
-        logd("Election thread getting next request");
-        if (stepUpDone.load()) {
+
+        // Don't respond to requests indefinitely.
+        if (responses > 5) {
             break;
         }
-        if (voteResponses >= 2) {
+
+        // If the heartbeat thread is already done, quit.
+        if(hbThreadDone.load() && responses == 0){
             break;
         }
-        if (!net->hasReadyRequests()) {
-            continue;
+
+        // Wait for ready requests.
+        logd("Waiting for next request");
+        while (!net->hasReadyRequests()) {
+            mainThreadRunnable.store(false);
+            mongo::sleepmillis(2);
         }
         const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
         const RemoteCommandRequest& request = noi->getRequest();
-        LOGV2(215240155,
+        LOGV2(215240199,
               "{request_target} processing {request_cmdObj}",
               "request_target"_attr = request.target.toString(),
               "request_cmdObj"_attr = request.cmdObj);
@@ -2841,6 +2842,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
             hbResp.setDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
             hbResp.setConfigVersion(rsConfig.getConfigVersion());
             net->scheduleResponse(noi, net->now(), makeResponseStatus(hbResp.toBSON()));
+            responses++;
         } else if (request.cmdObj.firstElement().fieldNameStringData() == "replSetRequestVotes") {
             net->scheduleResponse(
                 noi,
@@ -2849,31 +2851,41 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
                                              << ""
                                              << "term" << request.cmdObj["term"].Long()
                                              << "voteGranted" << true)));
-            voteResponses++;
-            logd("Responded to {} vote requests.", voteResponses);
+            responses++;
+            logd("Responded to {} vote requests.", responses);
         } else {
             net->blackHole(noi);
         }
+        mainThreadRunnable.store(true);
         net->runReadyNetworkOperations();
         hasReadyRequests = net->hasReadyRequests();
         getNet()->exitNetwork();
     }
 
     // Complete drain mode if necessary.
-    if (replCoord->getMemberState().primary()) {
+    auto nowPrimary = replCoord->getMemberState().primary();
+    if (nowPrimary) {
+        logd("### Running drain mode.");
         const auto opCtx = makeOperationContext();
         signalDrainComplete(opCtx.get());
     }
 
-    electionThreadDone.store(true);
+    mainThreadRunnable.store(false);
 
     logd("### Waiting for thread completions.");
     stepUpThread.join();
     hbReconfigThread.join();
 
-    logd("### Waiting for arbiter thread completion.");
+    //    logd("### Waiting for arbiter thread completion.");
     arbiter.join();
+
     getReplCoord()->getMutex().disableScheduleControl();
+
+    if (nowPrimary) {
+        // If we ran drain mode, ensure our config is in the right term.
+        ASSERT_EQ(getReplCoord()->getConfig().getConfigTerm(), getReplCoord()->getTerm());
+    }
+
 }
 
 }  // anonymous namespace
