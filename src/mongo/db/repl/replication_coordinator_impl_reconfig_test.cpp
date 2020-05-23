@@ -64,15 +64,15 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
                                                               logv2::LogSeverity::Debug(3)};
     auto electionTimeoutMillis = 10;
     assertStartSuccess(BSON("_id"
-                                    << "mySet"
-                                    << "settings"
-                                    << BSON("electionTimeoutMillis" << electionTimeoutMillis
-                                                                    << "heartbeatIntervalMillis" << 2)
-                                    << "version" << 2 << "term" << 0 << "members"
-                                    << BSON_ARRAY(BSON("_id" << 1 << "host"
-                                                             << "node1:12345")
-                                                          << BSON("_id" << 2 << "host"
-                                                                        << "node2:12345"))),
+                            << "mySet"
+                            << "settings"
+                            << BSON("electionTimeoutMillis" << electionTimeoutMillis
+                                                            << "heartbeatIntervalMillis" << 2)
+                            << "version" << 2 << "term" << 0 << "members"
+                            << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                     << "node1:12345")
+                                          << BSON("_id" << 2 << "host"
+                                                        << "node2:12345"))),
                        HostAndPort("node1", 12345));
     ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
     ASSERT_EQUALS(getReplCoord()->getTerm(), 0);
@@ -82,8 +82,9 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
     auto electionTime = getReplCoord()->getElectionTimeout_forTest();
     NetworkInterfaceMock* net = getNet();
 
-    // Respond to heartbeats until right before election.
-    // Process 1 heartbeat.
+    //
+    // Respond to a bunch of heartbeats so we know about other nodes health.
+    //
     int responses = 0;
     auto beforeElectionTime = electionTime - Milliseconds(1);
     while (net->now() < beforeElectionTime && responses < 3) {
@@ -124,13 +125,15 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
     AtomicWord<bool> stepUpDone{false};
     AtomicWord<bool> mainThreadRunnable{false};
 
+    //
     // Take control of mutex acquisition order.
-    logd("########### Enabling schedule control. ###########");
+    //
+    logd("#### Enabling schedule control. ####");
     getReplCoord()->getMutex().enableScheduleControl();
 
+    // Consider the set of runnable threads i.e. those not terminated or blocking on work. This
+    // function waits for all of them to hit the synchronization point before proceeding.
     auto waitForAllThreads = [&]() {
-        // Consider the set of runnable threads i.e. those not terminated or blocking on work. Wait
-        // for all of them to hit the synchronization point before proceeding.
         int numRunnable = 0;
         numRunnable += (hbThreadDone.load() ? 0 : 1);
         numRunnable += (mainThreadRunnable.load() ? 1 : 0);
@@ -142,6 +145,9 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         }
     };
 
+    // The arbiter thread is the "scheduler" thread i.e. it determines which thread gets to acquire
+    // the mutex at each synchronization point. Threads cannot proceed unless the arbiter threads
+    // let them.
     stdx::thread arbiter = stdx::thread([&] {
         setThreadName("ARBITER");
         logd("Starting arbiter thread");
@@ -149,7 +155,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         mongo::sleepmillis(200);
         while (true) {
             // Wait for all runnable threads to be blocked on the mutex.
-//            waitForAllThreads();
+            //            waitForAllThreads();
             mongo::sleepmillis(10);
 
             // Record the current number of mutex releases.
@@ -171,6 +177,9 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         }
     });
 
+    //
+    // The thread to trigger the heartbeat reconfig.
+    //
     stdx::thread hbReconfigThread([&] {
         setThreadName("hbReconfig");
 
@@ -186,24 +195,24 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         hbArgs.setTerm(0);
         ASSERT(hbArgs.isInitialized());
 
+        logd("### Processing heartbeat request.");
         ReplSetHeartbeatResponse response;
         ASSERT_OK(getReplCoord()->processHeartbeatV1(hbArgs, &response));
 
         // Schedule a response with a newer config.
         auto newerConfigVersion = 3;
         auto newerConfig = BSON("_id"
-                                        << "mySet"
-                                        << "settings"
-                                        << BSON("electionTimeoutMillis" << electionTimeoutMillis
-                                                                        << "heartbeatIntervalMillis" << 2)
-                                        << "version" << newerConfigVersion << "term" << 0 << "members"
-                                        << BSON_ARRAY(BSON("_id" << 1 << "host"
-                                                                 << "node1:12345")
-                                                              << BSON("_id" << 2 << "host"
-                                                                            << "node2:12345")));
+                                << "mySet"
+                                << "settings"
+                                << BSON("electionTimeoutMillis" << electionTimeoutMillis
+                                                                << "heartbeatIntervalMillis" << 2)
+                                << "version" << newerConfigVersion << "term" << 0 << "members"
+                                << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                         << "node1:12345")
+                                              << BSON("_id" << 2 << "host"
+                                                            << "node2:12345")));
 
         auto net = getNet();
-
         OpTime lastApplied(Timestamp(100, 1), 0);
         ReplSetHeartbeatResponse hbResp;
         rsConfig = ReplSetConfig::parse(newerConfig);
@@ -213,12 +222,11 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         hbResp.setConfigVersion(rsConfig.getConfigVersion());
         hbResp.setConfigTerm(rsConfig.getConfigTerm());
         hbResp.setAppliedOpTimeAndWallTime(
-                {lastApplied, Date_t() + Seconds(lastApplied.getSecs())});
+            {lastApplied, Date_t() + Seconds(lastApplied.getSecs())});
         hbResp.setDurableOpTimeAndWallTime(
-                {lastApplied, Date_t() + Seconds(lastApplied.getSecs())});
+            {lastApplied, Date_t() + Seconds(lastApplied.getSecs())});
 
         logd("### Scheduling response to heartbeat.");
-
         getReplCoord()->handleHeartbeatResponse_forTest(hbResp.toBSON(), 1, Milliseconds(10));
         net->signalWorkAvailable();
 
@@ -226,6 +234,9 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         hbThreadDone.store(true);
     });
 
+    //
+    // The thread to run the election.
+    //
     stdx::thread stepUpThread([&] {
         setThreadName("stepUp");
 
@@ -236,10 +247,10 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
     });
 
 
-    ReplicationCoordinatorImpl* replCoord = getReplCoord();
-    bool hasReadyRequests = true;
     // Process requests until we're primary and consume the heartbeats for the notification
     // of election win.
+    ReplicationCoordinatorImpl* replCoord = getReplCoord();
+    bool hasReadyRequests = true;
     responses = 0;
     while (!replCoord->getMemberState().primary() || hasReadyRequests) {
         LOGV2(215230088, "Waiting on network");
@@ -247,12 +258,13 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         getNet()->enterNetwork();
 
         // Don't respond to requests indefinitely.
+        // TODO: Figure out how to determine the right number of requests to respond to here.
         if (responses > 7) {
             break;
         }
 
         // If the heartbeat thread is already done, quit.
-        if(hbThreadDone.load() && responses == 0){
+        if (hbThreadDone.load() && responses == 0) {
             break;
         }
 
@@ -281,16 +293,17 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
             hbResp.setConfigVersion(rsConfig.getConfigVersion());
             net->scheduleResponse(noi, net->now(), makeResponseStatus(hbResp.toBSON()));
             responses++;
+            logd("Responded to {} requests.", responses);
         } else if (request.cmdObj.firstElement().fieldNameStringData() == "replSetRequestVotes") {
             net->scheduleResponse(
-                    noi,
-                    net->now(),
-                    makeResponseStatus(BSON("ok" << 1 << "reason"
-                                                 << ""
-                                                 << "term" << request.cmdObj["term"].Long()
-                                                 << "voteGranted" << true)));
+                noi,
+                net->now(),
+                makeResponseStatus(BSON("ok" << 1 << "reason"
+                                             << ""
+                                             << "term" << request.cmdObj["term"].Long()
+                                             << "voteGranted" << true)));
             responses++;
-            logd("Responded to {} vote requests.", responses);
+            logd("Responded to {} requests.", responses);
         } else {
             net->blackHole(noi);
         }
@@ -314,16 +327,17 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
     stepUpThread.join();
     hbReconfigThread.join();
 
-    //    logd("### Waiting for arbiter thread completion.");
+    logd("### Waiting for arbiter thread completion.");
     arbiter.join();
 
+
+    logd("#### Disabling schedule control. ####");
     getReplCoord()->getMutex().disableScheduleControl();
 
     if (nowPrimary) {
         // If we ran drain mode, ensure our config is in the right term.
         ASSERT_EQ(getReplCoord()->getConfig().getConfigTerm(), getReplCoord()->getTerm());
     }
-
 }
 
 
