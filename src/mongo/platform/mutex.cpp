@@ -57,6 +57,13 @@ int Mutex::numWaiters(){
     return size;
 }
 
+std::set<std::string> Mutex::waiterThreadNames(){
+    _internalMutex.lock();
+    std::set<std::string> names =  _waiterThreadNames;
+    _internalMutex.unlock();
+    return names;
+}
+
 bool Mutex::allowNextThread() {
     auto srand = SecureRandom();
     // Pick a random thread in the waiters set and let it proceed.
@@ -91,9 +98,10 @@ void Mutex::disableScheduleControl() {
 void Mutex::lock() {
     // Only order the mutex we care about.
     if(getName() == "ReplicationCoordinatorImpl::_mutex" && _enableScheduleControl.load()){
-        // Mark yourself as a waiter on this mutex.
+        // Mark yourself as a waiter on this mutex. Store thread name as well.
         _internalMutex.lock();
         _waiters.insert(std::this_thread::get_id());
+        _waiterThreadNames.insert(getThreadName().toString());
         logd("Added self to waiter set. Num waiters: {}", _waiters.size());
         _internalMutex.unlock();
 
@@ -104,6 +112,7 @@ void Mutex::lock() {
                 // Reset the flag before proceeding.
                 _nextAllowedThread = std::thread::id();
                 _waiters.erase(std::this_thread::get_id());
+                _waiterThreadNames.erase(getThreadName().toString());
                 logd("ACQUIRE mutex.");
                 _internalMutex.unlock();
                 break;

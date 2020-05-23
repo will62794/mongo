@@ -129,20 +129,56 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
     // Take control of mutex acquisition order.
     //
     logd("#### Enabling schedule control. ####");
-    getReplCoord()->getMutex().enableScheduleControl();
+    auto& replMutex = getReplCoord()->getMutex();
+    replMutex.enableScheduleControl();
+
+    auto inSet = [&](std::set<std::string> s, std::string item) { return s.find(item) != s.end(); };
 
     // Consider the set of runnable threads i.e. those not terminated or blocking on work. This
     // function waits for all of them to hit the synchronization point before proceeding.
     auto waitForAllThreads = [&]() {
+        // Wait until all threads are either blocked on mutex, or not runnable.
         int numRunnable = 0;
-        numRunnable += (hbThreadDone.load() ? 0 : 1);
-        numRunnable += (mainThreadRunnable.load() ? 1 : 0);
-        numRunnable += (executor::ThreadPoolMock::tpMockIsIdle.load() ? 0 : 1);
-        numRunnable += (stepUpDone.load() || !getReplCoord()->isStepUpRunnable() ? 0 : 1);
-        logd("Waiting for {} runnable threads.", numRunnable);
-        while (getReplCoord()->getMutex().numWaiters() < numRunnable) {
+        std::set<std::string> runnable;
+
+        logd("Waiting for hbReconfig thread to be blocked or terminated");
+        while (!inSet(replMutex.waiterThreadNames(), "hbReconfig") && !hbThreadDone.load()) {
             mongo::sleepmicros(100);
         }
+
+        logd("Waiting for main thread to be blocked or terminated");
+        while (!inSet(replMutex.waiterThreadNames(), "main") && mainThreadRunnable.load()) {
+            mongo::sleepmicros(100);
+        }
+
+        logd("Waiting for replexec thread to be blocked or terminated");
+        while (!inSet(replMutex.waiterThreadNames(), "replexec") &&
+               !executor::ThreadPoolMock::tpMockIsIdle.load()) {
+            mongo::sleepmicros(100);
+        }
+
+        logd("Waiting for stepUp thread to be blocked or terminated");
+        while (!inSet(replMutex.waiterThreadNames(), "stepUp") &&
+               getReplCoord()->isStepUpRunnable() && !stepUpDone.load()) {
+            mongo::sleepmicros(100);
+        }
+
+        //        if(!hbThreadDone.load()){
+        //            runnable.insert("hbReconfigThread");
+        //        }
+        //        if(mainThreadRunnable.load()){
+        //            runnable.insert("main");
+        //        }
+        //        if(!executor::ThreadPoolMock::tpMockIsIdle.load()){
+        //            runnable.insert("replexec");
+        //        }
+        //        if(!stepUpDone.load() && getReplCoord()->isStepUpRunnable()){
+        //            runnable.insert("stepUp");
+        //        }
+        //        logd("Waiting for {} runnable threads. runnables: {}", runnable.size(), runnable);
+        //        while (getReplCoord()->getMutex().numWaiters() < runnable.size()) {
+        //            mongo::sleepmicros(100);
+        //        }
     };
 
     // The arbiter thread is the "scheduler" thread i.e. it determines which thread gets to acquire
@@ -155,8 +191,8 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         mongo::sleepmillis(200);
         while (true) {
             // Wait for all runnable threads to be blocked on the mutex.
-            //            waitForAllThreads();
-            mongo::sleepmillis(10);
+            waitForAllThreads();
+            //            mongo::sleepmillis(10);
 
             // Record the current number of mutex releases.
             int initNumReleases = getReplCoord()->getMutex().numReleases();

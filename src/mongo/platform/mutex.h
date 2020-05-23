@@ -338,6 +338,7 @@ public:
     StringData getName() const override;
     bool allowNextThread();
     int numWaiters();
+    std::set<std::string> waiterThreadNames();
     void enableScheduleControl();
     void disableScheduleControl();
     int numReleases();
@@ -359,6 +360,7 @@ private:
     bool _isLocked = false;
 //    AtomicWord<int> _numWaiters{0};
     std::set<std::thread::id> _waiters;
+    std::set<std::string> _waiterThreadNames;
     std::mutex _internalMutex;
 
     // The set of threads now allowed to proceed.
