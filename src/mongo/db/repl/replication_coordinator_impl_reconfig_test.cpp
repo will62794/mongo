@@ -58,6 +58,279 @@ using executor::RemoteCommandResponse;
 
 typedef ReplicationCoordinator::ReplSetReconfigArgs ReplSetReconfigArgs;
 
+
+TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
+    auto severityGuard = unittest::MinimumLoggedSeverityGuard{logv2::LogComponent::kReplication,
+                                                              logv2::LogSeverity::Debug(3)};
+    auto electionTimeoutMillis = 10;
+    assertStartSuccess(BSON("_id"
+                                    << "mySet"
+                                    << "settings"
+                                    << BSON("electionTimeoutMillis" << electionTimeoutMillis
+                                                                    << "heartbeatIntervalMillis" << 2)
+                                    << "version" << 2 << "term" << 0 << "members"
+                                    << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                             << "node1:12345")
+                                                          << BSON("_id" << 2 << "host"
+                                                                        << "node2:12345"))),
+                       HostAndPort("node1", 12345));
+    ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
+    ASSERT_EQUALS(getReplCoord()->getTerm(), 0);
+    replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
+    replCoordSetMyLastDurableOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
+    auto rsConfig = getReplCoord()->getConfig();
+    auto electionTime = getReplCoord()->getElectionTimeout_forTest();
+    NetworkInterfaceMock* net = getNet();
+
+    // Respond to heartbeats until right before election.
+    // Process 1 heartbeat.
+    int responses = 0;
+    auto beforeElectionTime = electionTime - Milliseconds(1);
+    while (net->now() < beforeElectionTime && responses < 3) {
+        getNet()->enterNetwork();
+        net->runUntil(beforeElectionTime);
+        logd("Ran clock until: {}", net->now());
+        if (net->now() == beforeElectionTime) {
+            break;
+        }
+        const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
+        const RemoteCommandRequest& request = noi->getRequest();
+        LOGV2(215240188,
+              "{request_target} processing {request_cmdObj}",
+              "request_target"_attr = request.target.toString(),
+              "request_cmdObj"_attr = request.cmdObj);
+        ReplSetHeartbeatArgsV1 hbArgs;
+        Status status = hbArgs.initialize(request.cmdObj);
+        if (status.isOK()) {
+            ReplSetHeartbeatResponse hbResp;
+            hbResp.setSetName(rsConfig.getReplSetName());
+            hbResp.setState(MemberState::RS_SECONDARY);
+            // The smallest valid optime in PV1.
+            OpTime opTime(Timestamp(), 0);
+            hbResp.setAppliedOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
+            hbResp.setDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
+            hbResp.setConfigVersion(rsConfig.getConfigVersion());
+            net->scheduleResponse(noi, net->now(), makeResponseStatus(hbResp.toBSON()));
+            responses++;
+        }
+        net->runReadyNetworkOperations();
+        mongo::sleepmillis(10);
+        getNet()->exitNetwork();
+    }
+
+    // Data to keep for controlling concurrency.
+    AtomicWord<bool> hbThreadDone{false};
+    AtomicWord<bool> electionThreadDone{false};
+    AtomicWord<bool> stepUpDone{false};
+    AtomicWord<bool> mainThreadRunnable{false};
+
+    // Take control of mutex acquisition order.
+    logd("########### Enabling schedule control. ###########");
+    getReplCoord()->getMutex().enableScheduleControl();
+
+    auto waitForAllThreads = [&]() {
+        // Consider the set of runnable threads i.e. those not terminated or blocking on work. Wait
+        // for all of them to hit the synchronization point before proceeding.
+        int numRunnable = 0;
+        numRunnable += (hbThreadDone.load() ? 0 : 1);
+        numRunnable += (mainThreadRunnable.load() ? 1 : 0);
+        numRunnable += (executor::ThreadPoolMock::tpMockIsIdle.load() ? 0 : 1);
+        numRunnable += (stepUpDone.load() || !getReplCoord()->isStepUpRunnable() ? 0 : 1);
+        logd("Waiting for {} runnable threads.", numRunnable);
+        while (getReplCoord()->getMutex().numWaiters() < numRunnable) {
+            mongo::sleepmicros(100);
+        }
+    };
+
+    stdx::thread arbiter = stdx::thread([&] {
+        setThreadName("ARBITER");
+        logd("Starting arbiter thread");
+        // Wait for all threads to start up fully.
+        mongo::sleepmillis(200);
+        while (true) {
+            // Wait for all runnable threads to be blocked on the mutex.
+//            waitForAllThreads();
+            mongo::sleepmillis(10);
+
+            // Record the current number of mutex releases.
+            int initNumReleases = getReplCoord()->getMutex().numReleases();
+
+            // Now we know that all runnable threads are blocked at the mutex synchronization point.
+            // Now we just pick one of them to proceed. We  let a random next thread to proceed and
+            // acquire the mutex.
+            bool threadWent = getReplCoord()->getMutex().allowNextThread();
+            if (!threadWent) {
+                logd("Arbiter quitting");
+                break;
+            }
+
+            // Wait until the thread finished its critical section.
+            while (getReplCoord()->getMutex().numReleases() == initNumReleases) {
+                mongo::sleepmicros(100);
+            }
+        }
+    });
+
+    stdx::thread hbReconfigThread([&] {
+        setThreadName("hbReconfig");
+
+        logd("### Starting hb reconfig thread.");
+        // Receive a heartbeat that schedules a new heartbeat to fetch a newer config.
+        ReplSetHeartbeatArgsV1 hbArgs;
+        hbArgs.setConfigVersion(3);  // simulate a newer config version.
+        hbArgs.setConfigTerm(0);     // force config.
+        hbArgs.setSetName(rsConfig.getReplSetName());
+        hbArgs.setSenderHost(HostAndPort("node2", 12345));
+
+        hbArgs.setSenderId(2);
+        hbArgs.setTerm(0);
+        ASSERT(hbArgs.isInitialized());
+
+        ReplSetHeartbeatResponse response;
+        ASSERT_OK(getReplCoord()->processHeartbeatV1(hbArgs, &response));
+
+        // Schedule a response with a newer config.
+        auto newerConfigVersion = 3;
+        auto newerConfig = BSON("_id"
+                                        << "mySet"
+                                        << "settings"
+                                        << BSON("electionTimeoutMillis" << electionTimeoutMillis
+                                                                        << "heartbeatIntervalMillis" << 2)
+                                        << "version" << newerConfigVersion << "term" << 0 << "members"
+                                        << BSON_ARRAY(BSON("_id" << 1 << "host"
+                                                                 << "node1:12345")
+                                                              << BSON("_id" << 2 << "host"
+                                                                            << "node2:12345")));
+
+        auto net = getNet();
+
+        OpTime lastApplied(Timestamp(100, 1), 0);
+        ReplSetHeartbeatResponse hbResp;
+        rsConfig = ReplSetConfig::parse(newerConfig);
+        hbResp.setConfig(rsConfig);
+        hbResp.setSetName(rsConfig.getReplSetName());
+        hbResp.setState(MemberState::RS_SECONDARY);
+        hbResp.setConfigVersion(rsConfig.getConfigVersion());
+        hbResp.setConfigTerm(rsConfig.getConfigTerm());
+        hbResp.setAppliedOpTimeAndWallTime(
+                {lastApplied, Date_t() + Seconds(lastApplied.getSecs())});
+        hbResp.setDurableOpTimeAndWallTime(
+                {lastApplied, Date_t() + Seconds(lastApplied.getSecs())});
+
+        logd("### Scheduling response to heartbeat.");
+
+        getReplCoord()->handleHeartbeatResponse_forTest(hbResp.toBSON(), 1, Milliseconds(10));
+        net->signalWorkAvailable();
+
+        logd("### Heartbeat thread done.");
+        hbThreadDone.store(true);
+    });
+
+    stdx::thread stepUpThread([&] {
+        setThreadName("stepUp");
+
+        logd("### Starting step up thread.");
+        auto st = getReplCoord()->stepUpIfEligible(false);
+        logd("### step up result: {}", st);
+        stepUpDone.store(true);
+    });
+
+
+    ReplicationCoordinatorImpl* replCoord = getReplCoord();
+    bool hasReadyRequests = true;
+    // Process requests until we're primary and consume the heartbeats for the notification
+    // of election win.
+    responses = 0;
+    while (!replCoord->getMemberState().primary() || hasReadyRequests) {
+        LOGV2(215230088, "Waiting on network");
+        logd("Entering network.");
+        getNet()->enterNetwork();
+
+        // Don't respond to requests indefinitely.
+        if (responses > 7) {
+            break;
+        }
+
+        // If the heartbeat thread is already done, quit.
+        if(hbThreadDone.load() && responses == 0){
+            break;
+        }
+
+        // Wait for ready requests.
+        logd("Waiting for next request");
+        while (!net->hasReadyRequests()) {
+            mainThreadRunnable.store(false);
+            mongo::sleepmillis(2);
+        }
+        const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
+        const RemoteCommandRequest& request = noi->getRequest();
+        LOGV2(215240199,
+              "{request_target} processing {request_cmdObj}",
+              "request_target"_attr = request.target.toString(),
+              "request_cmdObj"_attr = request.cmdObj);
+        ReplSetHeartbeatArgsV1 hbArgs;
+        Status status = hbArgs.initialize(request.cmdObj);
+        if (status.isOK()) {
+            ReplSetHeartbeatResponse hbResp;
+            hbResp.setSetName(rsConfig.getReplSetName());
+            hbResp.setState(MemberState::RS_SECONDARY);
+            // The smallest valid optime in PV1.
+            OpTime opTime(Timestamp(), 0);
+            hbResp.setAppliedOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
+            hbResp.setDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
+            hbResp.setConfigVersion(rsConfig.getConfigVersion());
+            net->scheduleResponse(noi, net->now(), makeResponseStatus(hbResp.toBSON()));
+            responses++;
+        } else if (request.cmdObj.firstElement().fieldNameStringData() == "replSetRequestVotes") {
+            net->scheduleResponse(
+                    noi,
+                    net->now(),
+                    makeResponseStatus(BSON("ok" << 1 << "reason"
+                                                 << ""
+                                                 << "term" << request.cmdObj["term"].Long()
+                                                 << "voteGranted" << true)));
+            responses++;
+            logd("Responded to {} vote requests.", responses);
+        } else {
+            net->blackHole(noi);
+        }
+        mainThreadRunnable.store(true);
+        net->runReadyNetworkOperations();
+        hasReadyRequests = net->hasReadyRequests();
+        getNet()->exitNetwork();
+    }
+
+    // Complete drain mode if necessary.
+    auto nowPrimary = replCoord->getMemberState().primary();
+    if (nowPrimary) {
+        logd("### Running drain mode.");
+        const auto opCtx = makeOperationContext();
+        signalDrainComplete(opCtx.get());
+    }
+
+    mainThreadRunnable.store(false);
+
+    logd("### Waiting for thread completions.");
+    stepUpThread.join();
+    hbReconfigThread.join();
+
+    //    logd("### Waiting for arbiter thread completion.");
+    arbiter.join();
+
+    getReplCoord()->getMutex().disableScheduleControl();
+
+    if (nowPrimary) {
+        // If we ran drain mode, ensure our config is in the right term.
+        ASSERT_EQ(getReplCoord()->getConfig().getConfigTerm(), getReplCoord()->getTerm());
+    }
+
+}
+
+
+//////////////////////////////////
+//////////////////////////////////
+//////////////////////////////////
+
 TEST_F(ReplCoordTest, NodeReturnsNotYetInitializedWhenReconfigReceivedPriorToInitialization) {
     // start up but do not initiate
     init();
@@ -2324,273 +2597,6 @@ TEST_F(ReplCoordTest, SimpleElection) {
     simulateSuccessfulV1Election();
     electionThreadDone.store(true);
     arbiter.join();
-}
-
-TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
-    auto severityGuard = unittest::MinimumLoggedSeverityGuard{logv2::LogComponent::kReplication,
-                                                              logv2::LogSeverity::Debug(3)};
-    auto electionTimeoutMillis = 10;
-    assertStartSuccess(BSON("_id"
-                            << "mySet"
-                            << "settings"
-                            << BSON("electionTimeoutMillis" << electionTimeoutMillis
-                                                            << "heartbeatIntervalMillis" << 2)
-                            << "version" << 2 << "term" << 0 << "members"
-                            << BSON_ARRAY(BSON("_id" << 1 << "host"
-                                                     << "node1:12345")
-                                          << BSON("_id" << 2 << "host"
-                                                        << "node2:12345"))),
-                       HostAndPort("node1", 12345));
-    ASSERT_OK(getReplCoord()->setFollowerMode(MemberState::RS_SECONDARY));
-    ASSERT_EQUALS(getReplCoord()->getTerm(), 0);
-    replCoordSetMyLastAppliedOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
-    replCoordSetMyLastDurableOpTime(OpTime(Timestamp(100, 1), 0), Date_t() + Seconds(100));
-    auto rsConfig = getReplCoord()->getConfig();
-    auto electionTime = getReplCoord()->getElectionTimeout_forTest();
-    NetworkInterfaceMock* net = getNet();
-
-    // Respond to heartbeats until right before election.
-    // Process 1 heartbeat.
-    int responses = 0;
-    auto beforeElectionTime = electionTime - Milliseconds(1);
-    while (net->now() < beforeElectionTime && responses < 3) {
-        getNet()->enterNetwork();
-        net->runUntil(beforeElectionTime);
-        logd("Ran clock until: {}", net->now());
-        if (net->now() == beforeElectionTime) {
-            break;
-        }
-        const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
-        const RemoteCommandRequest& request = noi->getRequest();
-        LOGV2(215240188,
-              "{request_target} processing {request_cmdObj}",
-              "request_target"_attr = request.target.toString(),
-              "request_cmdObj"_attr = request.cmdObj);
-        ReplSetHeartbeatArgsV1 hbArgs;
-        Status status = hbArgs.initialize(request.cmdObj);
-        if (status.isOK()) {
-            ReplSetHeartbeatResponse hbResp;
-            hbResp.setSetName(rsConfig.getReplSetName());
-            hbResp.setState(MemberState::RS_SECONDARY);
-            // The smallest valid optime in PV1.
-            OpTime opTime(Timestamp(), 0);
-            hbResp.setAppliedOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
-            hbResp.setDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
-            hbResp.setConfigVersion(rsConfig.getConfigVersion());
-            net->scheduleResponse(noi, net->now(), makeResponseStatus(hbResp.toBSON()));
-            responses++;
-        }
-        net->runReadyNetworkOperations();
-        mongo::sleepmillis(10);
-        getNet()->exitNetwork();
-    }
-
-    // Data to keep for controlling concurrency.
-    AtomicWord<bool> hbThreadDone{false};
-    AtomicWord<bool> electionThreadDone{false};
-    AtomicWord<bool> stepUpDone{false};
-    AtomicWord<bool> mainThreadRunnable{false};
-
-    // Take control of mutex acquisition order.
-    logd("########### Enabling schedule control. ###########");
-    getReplCoord()->getMutex().enableScheduleControl();
-
-    auto waitForAllThreads = [&]() {
-        // Consider the set of runnable threads i.e. those not terminated or blocking on work. Wait
-        // for all of them to hit the synchronization point before proceeding.
-        int numRunnable = 0;
-        numRunnable += (hbThreadDone.load() ? 0 : 1);
-        numRunnable += (mainThreadRunnable.load() ? 1 : 0);
-        numRunnable += (executor::ThreadPoolMock::tpMockIsIdle.load() ? 0 : 1);
-        numRunnable += (stepUpDone.load() || !getReplCoord()->isStepUpRunnable() ? 0 : 1);
-        logd("Waiting for {} runnable threads.", numRunnable);
-        while (getReplCoord()->getMutex().numWaiters() < numRunnable) {
-            mongo::sleepmicros(100);
-        }
-    };
-
-    stdx::thread arbiter = stdx::thread([&] {
-        setThreadName("ARBITER");
-        logd("Starting arbiter thread");
-        // Wait for all threads to start up fully.
-        mongo::sleepmillis(200);
-        while (true) {
-            // Wait for all runnable threads to be blocked on the mutex.
-//            waitForAllThreads();
-            mongo::sleepmillis(10);
-
-            // Record the current number of mutex releases.
-            int initNumReleases = getReplCoord()->getMutex().numReleases();
-
-            // Now we know that all runnable threads are blocked at the mutex synchronization point.
-            // Now we just pick one of them to proceed. We  let a random next thread to proceed and
-            // acquire the mutex.
-            bool threadWent = getReplCoord()->getMutex().allowNextThread();
-            if (!threadWent) {
-                logd("Arbiter quitting");
-                break;
-            }
-
-            // Wait until the thread finished its critical section.
-            while (getReplCoord()->getMutex().numReleases() == initNumReleases) {
-                mongo::sleepmicros(100);
-            }
-        }
-    });
-
-    stdx::thread hbReconfigThread([&] {
-        setThreadName("hbReconfig");
-
-        logd("### Starting hb reconfig thread.");
-        // Receive a heartbeat that schedules a new heartbeat to fetch a newer config.
-        ReplSetHeartbeatArgsV1 hbArgs;
-        hbArgs.setConfigVersion(3);  // simulate a newer config version.
-        hbArgs.setConfigTerm(0);     // force config.
-        hbArgs.setSetName(rsConfig.getReplSetName());
-        hbArgs.setSenderHost(HostAndPort("node2", 12345));
-
-        hbArgs.setSenderId(2);
-        hbArgs.setTerm(0);
-        ASSERT(hbArgs.isInitialized());
-
-        ReplSetHeartbeatResponse response;
-        ASSERT_OK(getReplCoord()->processHeartbeatV1(hbArgs, &response));
-
-        // Schedule a response with a newer config.
-        auto newerConfigVersion = 3;
-        auto newerConfig = BSON("_id"
-                                << "mySet"
-                                << "settings"
-                                << BSON("electionTimeoutMillis" << electionTimeoutMillis
-                                                                << "heartbeatIntervalMillis" << 2)
-                                << "version" << newerConfigVersion << "term" << 0 << "members"
-                                << BSON_ARRAY(BSON("_id" << 1 << "host"
-                                                         << "node1:12345")
-                                              << BSON("_id" << 2 << "host"
-                                                            << "node2:12345")));
-
-        auto net = getNet();
-
-        OpTime lastApplied(Timestamp(100, 1), 0);
-        ReplSetHeartbeatResponse hbResp;
-        rsConfig = ReplSetConfig::parse(newerConfig);
-        hbResp.setConfig(rsConfig);
-        hbResp.setSetName(rsConfig.getReplSetName());
-        hbResp.setState(MemberState::RS_SECONDARY);
-        hbResp.setConfigVersion(rsConfig.getConfigVersion());
-        hbResp.setConfigTerm(rsConfig.getConfigTerm());
-        hbResp.setAppliedOpTimeAndWallTime(
-            {lastApplied, Date_t() + Seconds(lastApplied.getSecs())});
-        hbResp.setDurableOpTimeAndWallTime(
-            {lastApplied, Date_t() + Seconds(lastApplied.getSecs())});
-
-        logd("### Scheduling response to heartbeat.");
-
-        getReplCoord()->handleHeartbeatResponse_forTest(hbResp.toBSON(), 1, Milliseconds(10));
-        net->signalWorkAvailable();
-
-        logd("### Heartbeat thread done.");
-        hbThreadDone.store(true);
-    });
-
-    stdx::thread stepUpThread([&] {
-        setThreadName("stepUp");
-
-        logd("### Starting step up thread.");
-        auto st = getReplCoord()->stepUpIfEligible(false);
-        logd("### step up result: {}", st);
-        stepUpDone.store(true);
-    });
-
-
-    ReplicationCoordinatorImpl* replCoord = getReplCoord();
-    bool hasReadyRequests = true;
-    // Process requests until we're primary and consume the heartbeats for the notification
-    // of election win.
-    responses = 0;
-    while (!replCoord->getMemberState().primary() || hasReadyRequests) {
-        LOGV2(215230088, "Waiting on network");
-        logd("Entering network.");
-        getNet()->enterNetwork();
-
-        // Don't respond to requests indefinitely.
-        if (responses > 7) {
-            break;
-        }
-
-        // If the heartbeat thread is already done, quit.
-        if(hbThreadDone.load() && responses == 0){
-            break;
-        }
-
-        // Wait for ready requests.
-        logd("Waiting for next request");
-        while (!net->hasReadyRequests()) {
-            mainThreadRunnable.store(false);
-            mongo::sleepmillis(2);
-        }
-        const NetworkInterfaceMock::NetworkOperationIterator noi = net->getNextReadyRequest();
-        const RemoteCommandRequest& request = noi->getRequest();
-        LOGV2(215240199,
-              "{request_target} processing {request_cmdObj}",
-              "request_target"_attr = request.target.toString(),
-              "request_cmdObj"_attr = request.cmdObj);
-        ReplSetHeartbeatArgsV1 hbArgs;
-        Status status = hbArgs.initialize(request.cmdObj);
-        if (status.isOK()) {
-            ReplSetHeartbeatResponse hbResp;
-            hbResp.setSetName(rsConfig.getReplSetName());
-            hbResp.setState(MemberState::RS_SECONDARY);
-            // The smallest valid optime in PV1.
-            OpTime opTime(Timestamp(), 0);
-            hbResp.setAppliedOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
-            hbResp.setDurableOpTimeAndWallTime({opTime, Date_t() + Seconds(opTime.getSecs())});
-            hbResp.setConfigVersion(rsConfig.getConfigVersion());
-            net->scheduleResponse(noi, net->now(), makeResponseStatus(hbResp.toBSON()));
-            responses++;
-        } else if (request.cmdObj.firstElement().fieldNameStringData() == "replSetRequestVotes") {
-            net->scheduleResponse(
-                noi,
-                net->now(),
-                makeResponseStatus(BSON("ok" << 1 << "reason"
-                                             << ""
-                                             << "term" << request.cmdObj["term"].Long()
-                                             << "voteGranted" << true)));
-            responses++;
-            logd("Responded to {} vote requests.", responses);
-        } else {
-            net->blackHole(noi);
-        }
-        mainThreadRunnable.store(true);
-        net->runReadyNetworkOperations();
-        hasReadyRequests = net->hasReadyRequests();
-        getNet()->exitNetwork();
-    }
-
-    // Complete drain mode if necessary.
-    auto nowPrimary = replCoord->getMemberState().primary();
-    if (nowPrimary) {
-        logd("### Running drain mode.");
-        const auto opCtx = makeOperationContext();
-        signalDrainComplete(opCtx.get());
-    }
-
-    mainThreadRunnable.store(false);
-
-    logd("### Waiting for thread completions.");
-    stepUpThread.join();
-    hbReconfigThread.join();
-
-    //    logd("### Waiting for arbiter thread completion.");
-    arbiter.join();
-
-    getReplCoord()->getMutex().disableScheduleControl();
-
-    if (nowPrimary) {
-        // If we ran drain mode, ensure our config is in the right term.
-        ASSERT_EQ(getReplCoord()->getConfig().getConfigTerm(), getReplCoord()->getTerm());
-    }
-
 }
 
 }  // anonymous namespace
