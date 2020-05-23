@@ -52,6 +52,7 @@ class NetworkInterfaceMock;
 class ThreadPoolMock final : public ThreadPoolInterface {
 public:
     static AtomicWord<bool> tpMockIsIdle;
+    static AtomicWord<int> numTasks;
 
     /**
      * Structure used to configure an instance of ThreadPoolMock.

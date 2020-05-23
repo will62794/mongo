@@ -162,6 +162,10 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
                getReplCoord()->isStepUpRunnable() && !stepUpDone.load()) {
             mongo::sleepmicros(100);
         }
+
+        // For now, sleep to make sure any threads that need to make progress have.
+        // TODO: Fix racy behavior of waiting on threads.
+        mongo::sleepmillis(5);
     };
 
     // The arbiter thread is the "scheduler" thread i.e. it determines which thread gets to acquire
@@ -278,7 +282,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
 
         // Don't respond to requests indefinitely.
         // TODO: Figure out how to determine the right number of requests to respond to here.
-        if (responses > 7) {
+        if (responses > 8) {
             break;
         }
 
@@ -338,7 +342,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         logd("### Running drain mode.");
         const auto opCtx = makeOperationContext();
         signalDrainComplete(opCtx.get());
-    } else{
+    } else {
         logd("### Skipping drain mode.");
     }
 

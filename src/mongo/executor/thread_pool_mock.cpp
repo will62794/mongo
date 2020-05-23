@@ -40,6 +40,7 @@ namespace mongo {
 namespace executor {
 
 AtomicWord<bool> ThreadPoolMock::tpMockIsIdle{true};
+AtomicWord<int> ThreadPoolMock::numTasks{0};
 
 ThreadPoolMock::ThreadPoolMock(NetworkInterfaceMock* net, int32_t prngSeed, Options options)
     : _options(std::move(options)), _prng(prngSeed), _net(net) {}
