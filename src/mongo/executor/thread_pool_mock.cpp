@@ -75,6 +75,7 @@ void ThreadPoolMock::startup() {
                     lk.lock();
 //                    logd("ThreadPoolMock has {} tasks.", _tasks.size());
                 }
+                logd("ThreadPoolMock no longer idle.");
                 ThreadPoolMock::tpMockIsIdle.store(false);
 //                lk.unlock();
 //                ThreadPoolMock::tpMockIsIdle.store(true);
@@ -111,6 +112,8 @@ void ThreadPoolMock::schedule(Task task) {
     }
 
     _tasks.emplace_back(std::move(task));
+    logd("Scheduled new task. num tasks: {}", _tasks.size());
+    numTasks.store(_tasks.size());
 }
 
 void ThreadPoolMock::_consumeOneTask(stdx::unique_lock<Latch>& lk) {
@@ -127,6 +130,7 @@ void ThreadPoolMock::_consumeOneTask(stdx::unique_lock<Latch>& lk) {
         fn(Status::OK());
     }
     lk.lock();
+    numTasks.store(_tasks.size());
 }
 
 void ThreadPoolMock::_shutdown(stdx::unique_lock<Latch>& lk) {

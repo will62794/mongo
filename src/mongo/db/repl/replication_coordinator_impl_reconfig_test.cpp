@@ -147,13 +147,33 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         }
 
         logd("Waiting for main thread to be blocked or terminated");
-        while (!inSet(replMutex.waiterThreadNames(), "main") && mainThreadRunnable.load()) {
+        while(true){
+            // Blocked on mutex.
+            if(inSet(replMutex.waiterThreadNames(), "main")){
+                logd("main is blocked on mutex");
+                break;
+            }
+            // Not runnable and no ready requests to process.
+            if(!mainThreadRunnable.load()){
+                logd("main is not runnable");
+                break;
+            }
             mongo::sleepmicros(100);
         }
 
         logd("Waiting for replexec thread to be blocked or terminated");
-        while (!inSet(replMutex.waiterThreadNames(), "replexec") &&
-               !executor::ThreadPoolMock::tpMockIsIdle.load()) {
+        while (true) {
+            // Blocked on mutex.
+            if (inSet(replMutex.waiterThreadNames(), "replexec")) {
+                logd("replexec is blocked on mutex");
+                break;
+            }
+            // Idle with no tasks
+            if (executor::ThreadPoolMock::tpMockIsIdle.load() &&
+                executor::ThreadPoolMock::numTasks.load() == 0) {
+                logd("replexec is idle with no tasks");
+                break;
+            }
             mongo::sleepmicros(100);
         }
 
@@ -165,7 +185,7 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
 
         // For now, sleep to make sure any threads that need to make progress have.
         // TODO: Fix racy behavior of waiting on threads.
-        mongo::sleepmillis(5);
+        //        mongo::sleepmillis(5);
     };
 
     // The arbiter thread is the "scheduler" thread i.e. it determines which thread gets to acquire
