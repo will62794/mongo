@@ -365,16 +365,12 @@ TEST_F(ReplCoordTest, StepUpAndHeartbeatReconfigConcurrentNew) {
         hasReadyRequests = net->hasReadyRequests();
         getNet()->exitNetwork();
     }
-//
-//    logd("Thread pool tasks: {}", executor::ThreadPoolMock::numTasks.load());
-//    // Wait until thread pool has completed its outstanding tasks.
-//    while(executor::ThreadPoolMock::numTasks.load()>0){
-//        mongo::sleepmicros(100);
-//    }
 
     // Complete drain mode if necessary.
     auto nowPrimary = replCoord->getMemberState().primary();
     if (nowPrimary) {
+        // Wait a bit to make sure drain mode finished.
+        mongo::sleepmillis(50);
         logd("### Running drain mode.");
         const auto opCtx = makeOperationContext();
         signalDrainComplete(opCtx.get());
