@@ -1797,10 +1797,10 @@ transaction. For a prepared transaction, we have the following guarantee: `prepa
 
 **`currentCommittedSnapshot`**: An optime maintained in `ReplicationCoordinator` that is used to
 serve majority reads and is always guaranteed to be <= `lastCommittedOpTime`. When `eMRC=true`, this
-is currently set to the stable optime, which is guaranteed to be in a node’s oplog. Since it is
-reset every time we recalculate the stable optime, it will also be up to date.
+is currently [set to the stable optime](https://github.com/mongodb/mongo/blob/4c0d9383a76c82c0e46ce8d82ed17d3687f12d8f/src/mongo/db/repl/replication_coordinator_impl.cpp#L4945). 
+Since it is reset every time we recalculate the stable optime, it will also be up to date.
 
-When `eMRC=false`, this is set to the `lastCommittedOpTime`, so it may not be in the node’s oplog.
+When `eMRC=false`, this is set to the `lastCommittedOpTime`. 
 The `stable_timestamp` is not allowed to advance past the `all_durable`. So, this value shouldn’t
 be ahead of `all_durable` unless `eMRC=false`.
 
@@ -1861,3 +1861,5 @@ which is why we must use the Rollback via Refetch rollback algorithm.
 
 This timestamp is also required to increase monotonically except when `eMRC=false`, where in a
 special case during rollback it is possible for the `stableTimestamp` to move backwards.
+
+The calculation of this value in the replication layer occurs [here](https://github.com/mongodb/mongo/blob/4c0d9383a76c82c0e46ce8d82ed17d3687f12d8f/src/mongo/db/repl/replication_coordinator_impl.cpp#L4822-L4883).
