@@ -1864,4 +1864,4 @@ special case during rollback it is possible for the `stableTimestamp` to move ba
 
 The calculation of this value in the replication layer occurs [here](https://github.com/mongodb/mongo/blob/4c0d9383a76c82c0e46ce8d82ed17d3687f12d8f/src/mongo/db/repl/replication_coordinator_impl.cpp#L4822-L4883).
 The replication layer will [skip setting the stable timestamp](https://github.com/mongodb/mongo/blob/4aa1a5d5d49e13d1080b1d73eb4ba79b49e1acb2/src/mongo/db/repl/replication_coordinator_impl.cpp#L4911-L4925) if it is earlier than the
-**`initialDataTimestamp`**, since data earlier than that timestamp may be inconsistent.
+`initialDataTimestamp`, since data earlier than that timestamp may be inconsistent.
