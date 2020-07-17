@@ -1800,9 +1800,9 @@ serve majority reads and is always guaranteed to be <= `lastCommittedOpTime`. Wh
 is currently [set to the stable optime](https://github.com/mongodb/mongo/blob/4c0d9383a76c82c0e46ce8d82ed17d3687f12d8f/src/mongo/db/repl/replication_coordinator_impl.cpp#L4945). 
 Since it is reset every time we recalculate the stable optime, it will also be up to date.
 
-When `eMRC=false`, this is set to the `lastCommittedOpTime`. 
-The `stable_timestamp` is not allowed to advance past the `all_durable`. So, this value shouldn’t
-be ahead of `all_durable` unless `eMRC=false`.
+When `eMRC=false`, this [is set](https://github.com/mongodb/mongo/blob/4aa1a5d5d49e13d1080b1d73eb4ba79b49e1acb2/src/mongo/db/repl/replication_coordinator_impl.cpp#L4955-L4963) 
+to the minimum of the stable optime and the `lastCommittedOpTime`, even though it is not used to 
+serve majority reads in that case.
 
 **`initialDataTimestamp`**: A timestamp used to indicate the timestamp at which history “begins”.
 When a node comes out of initial sync, we inform the storage engine that the `initialDataTimestamp`
@@ -1863,3 +1863,5 @@ This timestamp is also required to increase monotonically except when `eMRC=fals
 special case during rollback it is possible for the `stableTimestamp` to move backwards.
 
 The calculation of this value in the replication layer occurs [here](https://github.com/mongodb/mongo/blob/4c0d9383a76c82c0e46ce8d82ed17d3687f12d8f/src/mongo/db/repl/replication_coordinator_impl.cpp#L4822-L4883).
+The replication layer will [skip setting the stable timestamp](https://github.com/mongodb/mongo/blob/4aa1a5d5d49e13d1080b1d73eb4ba79b49e1acb2/src/mongo/db/repl/replication_coordinator_impl.cpp#L4911-L4925) if it is earlier than the
+**`initialDataTimestamp`**, since data earlier than that timestamp may be inconsistent.
