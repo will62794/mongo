@@ -467,10 +467,10 @@ public:
             serverGlobalParams.featureCompatibility.isVersion(
                 ServerGlobalParams::FeatureCompatibility::Version::kFullyUpgradedTo44) &&
             enableSafeReplicaSetReconfig) {
-            // auto status =
-            //     replCoord->awaitConfigCommitment(opCtx, false /* waitForOplogCommitment */);
-            // uassertStatusOK(
-            //     status.withContext("Reconfig finished but failed to propagate to a majority"));
+            auto status =
+                replCoord->awaitConfigCommitment(opCtx, false /* waitForOplogCommitment */);
+            uassertStatusOK(
+                status.withContext("Reconfig finished but failed to propagate to a majority"));
         }
 
         return true;
