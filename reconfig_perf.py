@@ -44,9 +44,9 @@ config = res["config"]
 heartbeatIntervalMS = 2000 # milliseconds.
 
 # Use slave delay to simulate lagged secondaries.
-# config["members"][1]["slaveDelay"] = 1
+config["members"][1]["slaveDelay"] = 1
 config["members"][1]["priority"] = 0
-# config["members"][2]["slaveDelay"] = 1
+config["members"][2]["slaveDelay"] = 1
 config["members"][2]["priority"] = 0
 
 settings = config["settings"]
@@ -73,7 +73,7 @@ def restartHbs(client):
     assert reshb["ok"] == 1.0
 
 reconfig_latencies = []
-for i in range(10):
+for i in range(20):
     config["version"] = config["version"] + 1
     print("*** starting reconfig to version " + str(config["version"]))
     # print(config)
@@ -81,27 +81,33 @@ for i in range(10):
     res = client.admin.command("replSetReconfig", config)
     # time.sleep(0.010)
 
+    db = client[db_name]
+    collection = db[coll_name]
+    collection = collection.with_options(write_concern=pymongo.WriteConcern(w="majority"))
+    doc = {"noop": 1}
+    writeres = collection.insert_one(doc)
+
     durationMS = (time.time() - start) * 1000
     reconfig_latencies.append(durationMS)
     if res["ok"] == 1.0:
         print("*** reconfig success in %f ms" % durationMS)
 
 write_latencies = []
-for i in range(10):
-    # print(config)
-    start = time.time()
-    db = client[db_name]
-    collection = db[coll_name]
-    collection = collection.with_options(write_concern=pymongo.WriteConcern(w="majority"))
-    doc = {"tid": 1, "x": i}
-    res = collection.insert_one(doc)
-    # print(doc)
-    assert res.acknowledged
-    durationMS = (time.time() - start) * 1000
-    write_latencies.append(durationMS)
+# for i in range(10):
+#     # print(config)
+#     start = time.time()
+#     db = client[db_name]
+#     collection = db[coll_name]
+#     collection = collection.with_options(write_concern=pymongo.WriteConcern(w="majority"))
+#     doc = {"tid": 1, "x": i}
+#     res = collection.insert_one(doc)
+#     # print(doc)
+#     assert res.acknowledged
+#     durationMS = (time.time() - start) * 1000
+#     write_latencies.append(durationMS)
 
 print("Mean reconfig latency: %d ms" % avg(reconfig_latencies))
-print("Mean majority write latency: %d ms" % avg(write_latencies))
+# print("Mean majority write latency: %d ms" % avg(write_latencies))
 
 for w in writers:
     w.join()
