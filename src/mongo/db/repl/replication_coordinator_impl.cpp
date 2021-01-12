@@ -5017,6 +5017,13 @@ Status ReplicationCoordinatorImpl::processHeartbeatV1(const ReplSetHeartbeatArgs
             int senderIndex = _rsConfig.findMemberIndexByHostAndPort(senderHost);
             _scheduleHeartbeatToTarget_inlock(senderHost, senderIndex, now);
         }
+    } else if(result.isOK()){
+        if(_memberState.primary()){
+            // Otherwise restart heartbeats just in case we need to learn of a newly installed
+            // config from the sender.
+            LOGV2(81401, "Primary restarting heartbeats after receiving a heartbeat request");
+            _restartHeartbeats_inlock();
+        }
     }
     return result;
 }
