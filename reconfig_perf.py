@@ -81,12 +81,6 @@ for i in range(20):
     res = client.admin.command("replSetReconfig", config)
     # time.sleep(0.010)
 
-    db = client[db_name]
-    collection = db[coll_name]
-    collection = collection.with_options(write_concern=pymongo.WriteConcern(w="majority"))
-    doc = {"noop": 1}
-    writeres = collection.insert_one(doc)
-
     durationMS = (time.time() - start) * 1000
     reconfig_latencies.append(durationMS)
     if res["ok"] == 1.0:
