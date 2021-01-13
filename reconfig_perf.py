@@ -7,6 +7,13 @@ def avg(vals):
 
 client = pymongo.MongoClient('localhost', 28000)
 
+# Disable any previous failpoints.
+print("Disabling previous failpoints.")
+for i in [0,1,2,3,4]:
+    nclient = pymongo.MongoClient('localhost', 28000 + i)
+    res = nclient.admin.command({"configureFailPoint": 'rsSyncApplyStop', "mode": 'off'})
+    assert res["ok"] == 1.0
+
 res = client.admin.command("ismaster")
 print(res)
 
@@ -29,33 +36,25 @@ coll_name = "test-coll"
 print("Removing all documents from '%s.%s'" % (db_name, coll_name))
 db = client[db_name][coll_name].delete_many({})
 
-#
-# Artificially delay secondaries to simulate slowness in the oplog replication
-# pipeline. We then set up a series of concurrent writer threads, which continually
-# insert documents into a collection, and a reconfig thread that runs concurrently. The
-# reconfig thread repeatedly executes reconfigurations to go from C5 -> C4 -> C3 -> C4 -> C5
-# in a loop, where:
-#
-#   C5 = {n0,n1,n2,n3,n4} 
-#   C4 = {n0,n1,n2,n3}
-#   C3 = {n0,n1,n2}
-#
-# We measure reconfiguration throughput over some fixed period of execution time. The expectation
-# is that standard Raft reconfig, which requires the latest op on a primary to be committed
-# in the new config, pays an extra cost for replicating these writes unnecessarily, which should
-# show up in the reconfiguration throughput metrics.
-#
-#
-
 def write_thread(k):
     client = pymongo.MongoClient('localhost', 28000)
     db = client[db_name]
     collection = db[coll_name]
-    for i in range(500):
-        doc = {"tid": k, "x": i}
+    collection = collection.with_options(write_concern=pymongo.WriteConcern(w="majority"))
+    longStr = "a"*1024
+    time_limit_secs = 10
+    i=0
+    tbegin = time.time() 
+    while (time.time()-tbegin) < time_limit_secs:
+        doc = {"tid": k, "x": i, "data": longStr}
+        start = time.time()
         res = collection.insert_one(doc)
-        # print(doc)
         assert res.acknowledged
+        latencyMS = (time.time() - start) * 1000.0
+        if i%10 == 0:
+            print("w:majority write latency: %d ms" % latencyMS)
+        i+=1
+
 
 res = client.admin.command("replSetGetConfig")
 config = res["config"]
@@ -73,12 +72,19 @@ settings = config["settings"]
 settings["heartbeatIntervalMillis"] = heartbeatIntervalMS
 config["version"] = config["version"] + 1
 config["settings"] = settings
-print("*** reconfig to set heartbeat interval to %dms" % heartbeatIntervalMS)
+print("*** initial reconfig")
 res = client.admin.command("replSetReconfig", config)
 assert res["ok"] == 1.0
 
+# Remove votes from n3 and n4.
+for mi in [3,4]:
+    config["version"] = config["version"] + 1
+    config["members"][mi]["votes"] = 0
+    res = client.admin.command("replSetReconfig", config)
+    assert res["ok"] == 1.0
+
 # Start writer threads.
-nWriters = 5
+nWriters = 1
 writers = []
 for tid in range(nWriters):
     print("Starting writer thread %d" % tid)
@@ -88,25 +94,91 @@ for tid in range(nWriters):
 
 time.sleep(0.5)
 
-reconfig_latencies = []
-time_limit_secs = 10
-tbegin = time.time() 
-while (time.time()-tbegin) < time_limit_secs:
+# Let the system run for N seconds, then introduce slowness on the 
+# secondaries by adding a slave delay.
+time.sleep(4)
+
+# Introduce simulated degradation by stopping replication on two 
+# voting secondaries and then restarting it after a few seconds.
+def fault_injector_thread():
+    print("Simulating replication degradation on n1 and n2")
+    n1client = pymongo.MongoClient('localhost', 28001)
+    n2client = pymongo.MongoClient('localhost', 28002)
+
+    # Simulate a period of degradation.
+    res = n1client.admin.command({"configureFailPoint": 'rsSyncApplyStop', "mode": 'alwaysOn'})
+    assert res["ok"] == 1.0
+    res = n2client.admin.command({"configureFailPoint": 'rsSyncApplyStop', "mode": 'alwaysOn'})
+    assert res["ok"] == 1.0
+    downTimeSecs = 3
+    print("Degradation beginning for %d secs" % downTimeSecs)
+    time.sleep(downTimeSecs)
+
+    res = n1client.admin.command({"configureFailPoint": 'rsSyncApplyStop', "mode": 'off'})
+    assert res["ok"] == 1.0
+    res = n2client.admin.command({"configureFailPoint": 'rsSyncApplyStop', "mode": 'off'})
+    assert res["ok"] == 1.0
+    print("Degradation period over.")
+
+
+tfault = threading.Thread(target=fault_injector_thread)
+tfault.start()
+
+
+# config["version"] = config["version"] + 1
+# for mi in [1,2]:
+#     config["members"][mi]["slaveDelay"] = 3
+#     config["members"][mi]["priority"] = 0
+# print("*** starting reconfig to version " + str(config["version"]))
+# start = time.time()
+# res = client.admin.command("replSetReconfig", config)
+# durationMS = (time.time() - start) * 1000
+# if res["ok"] == 1.0:
+#     print("*** reconfig success in %f ms" % durationMS)
+
+# Simulate quick failure detection.
+print("Simulated wait to detect degradation.")
+time.sleep(0.5)
+
+# Now reconfigure to add in two healthy nodes.
+print("Degradation detected. Trying to add two new healthy nodes.")
+for mi in [3,4]:
     config["version"] = config["version"] + 1
-    print("*** starting reconfig to version " + str(config["version"]))
+    config["members"][mi]["votes"] = 1
     start = time.time()
     res = client.admin.command("replSetReconfig", config)
-    # time.sleep(0.010)
-
     durationMS = (time.time() - start) * 1000
-    reconfig_latencies.append(durationMS)
     if res["ok"] == 1.0:
-        print("*** reconfig success in %f ms" % durationMS)
-        # Print bar representing duration.
-        bar_len = int(durationMS/3)
-        print("+"*bar_len)
+        print("*** reconfig added healthy node %d in %f ms" % (mi, durationMS))
 
-print("Mean reconfig latency: %d ms" % avg(reconfig_latencies))
+# Wait until degraded period has ended.
+tfault.join()
+
+reconfig_latencies = []
+# time_limit_secs = 25
+# tbegin = time.time() 
+# while (time.time()-tbegin) < time_limit_secs:
+#     config["version"] = config["version"] + 1
+#     print("*** starting reconfig to version " + str(config["version"]))
+#     start = time.time()
+#     res = client.admin.command("replSetReconfig", config)
+#     # time.sleep(0.010)
+
+#     durationMS = (time.time() - start) * 1000
+#     reconfig_latencies.append(durationMS)
+#     if res["ok"] == 1.0:
+#         print("*** reconfig success in %f ms" % durationMS)
+#         # Print bar representing duration.
+#         bar_len = int(durationMS/3)
+#         print("+"*bar_len)
+
+# print("Mean reconfig latency: %d ms" % avg(reconfig_latencies))
+
+# Save the latencies to a file, one per row.
+f = open("reconfig-latencies.csv", 'w')
+for l in reconfig_latencies:
+    f.write(str(l))
+f.close()
 
 for w in writers:
     w.join()
