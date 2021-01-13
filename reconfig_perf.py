@@ -15,7 +15,9 @@ if "setName" not in res:
     initConfig = {'_id': 'will-replset', 'members': [
         {'_id': 0, 'host': 'localhost:28000'},
         {'_id': 1, 'host': 'localhost:28001'},
-        {'_id': 2, 'host': 'localhost:28002'}]}
+        {'_id': 2, 'host': 'localhost:28002'},
+        {'_id': 3, 'host': 'localhost:28003'},
+        {'_id': 4, 'host': 'localhost:28004'}]}
     res = client.admin.command("replSetInitiate", initConfig)
 
 client = pymongo.MongoClient('localhost', 28000, replicaset='will-replset')
@@ -26,6 +28,24 @@ coll_name = "test-coll"
 # Remove all documents from test collection.
 print("Removing all documents from '%s.%s'" % (db_name, coll_name))
 db = client[db_name][coll_name].delete_many({})
+
+#
+# Artificially delay secondaries to simulate slowness in the oplog replication
+# pipeline. We then set up a series of concurrent writer threads, which continually
+# insert documents into a collection, and a reconfig thread that runs concurrently. The
+# reconfig thread repeatedly executes reconfigurations to go from C5 -> C4 -> C3 -> C4 -> C5
+# in a loop, where:
+#
+#   C5 = {n0,n1,n2,n3,n4} 
+#   C4 = {n0,n1,n2,n3}
+#   C3 = {n0,n1,n2}
+#
+# We measure reconfiguration throughput over some fixed period of execution time. The expectation
+# is that standard Raft reconfig, which requires the latest op on a primary to be committed
+# in the new config, pays an extra cost for replicating these writes unnecessarily, which should
+# show up in the reconfiguration throughput metrics.
+#
+#
 
 def write_thread(k):
     client = pymongo.MongoClient('localhost', 28000)
@@ -40,14 +60,14 @@ def write_thread(k):
 res = client.admin.command("replSetGetConfig")
 config = res["config"]
 
-# Set fast heartbeat interval.
+# Set heartbeat interval.
 heartbeatIntervalMS = 2000 # milliseconds.
 
-# Use slave delay to simulate lagged secondaries.
-config["members"][1]["slaveDelay"] = 1
-config["members"][1]["priority"] = 0
-config["members"][2]["slaveDelay"] = 1
-config["members"][2]["priority"] = 0
+# Use slave delay to simulate lagged secondaries and give them priority:0 so they cannot
+# be elected.
+for mi in [1,2,3,4]:
+    config["members"][mi]["slaveDelay"] = 0
+    config["members"][mi]["priority"] = 0
 
 settings = config["settings"]
 settings["heartbeatIntervalMillis"] = heartbeatIntervalMS
@@ -58,25 +78,22 @@ res = client.admin.command("replSetReconfig", config)
 assert res["ok"] == 1.0
 
 # Start writer threads.
+nWriters = 5
 writers = []
-# for tid in range(5):
-#     print("Starting writer thread %d" % tid)
-#     t = threading.Thread(target=write_thread, args=(tid,))
-#     t.start()
-#     writers.append(t)
+for tid in range(nWriters):
+    print("Starting writer thread %d" % tid)
+    t = threading.Thread(target=write_thread, args=(tid,))
+    t.start()
+    writers.append(t)
 
 time.sleep(0.5)
 
-def restartHbs(client):
-    # Restart heartbeats on the primary.
-    reshb = client.admin.command({"replSetTest":1, "restartHeartbeats":1})
-    assert reshb["ok"] == 1.0
-
 reconfig_latencies = []
-for i in range(20):
+time_limit_secs = 10
+tbegin = time.time() 
+while (time.time()-tbegin) < time_limit_secs:
     config["version"] = config["version"] + 1
     print("*** starting reconfig to version " + str(config["version"]))
-    # print(config)
     start = time.time()
     res = client.admin.command("replSetReconfig", config)
     # time.sleep(0.010)
@@ -85,23 +102,11 @@ for i in range(20):
     reconfig_latencies.append(durationMS)
     if res["ok"] == 1.0:
         print("*** reconfig success in %f ms" % durationMS)
-
-write_latencies = []
-# for i in range(10):
-#     # print(config)
-#     start = time.time()
-#     db = client[db_name]
-#     collection = db[coll_name]
-#     collection = collection.with_options(write_concern=pymongo.WriteConcern(w="majority"))
-#     doc = {"tid": 1, "x": i}
-#     res = collection.insert_one(doc)
-#     # print(doc)
-#     assert res.acknowledged
-#     durationMS = (time.time() - start) * 1000
-#     write_latencies.append(durationMS)
+        # Print bar representing duration.
+        bar_len = int(durationMS/3)
+        print("+"*bar_len)
 
 print("Mean reconfig latency: %d ms" % avg(reconfig_latencies))
-# print("Mean majority write latency: %d ms" % avg(write_latencies))
 
 for w in writers:
     w.join()

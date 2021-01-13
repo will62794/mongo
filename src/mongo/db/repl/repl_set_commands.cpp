@@ -440,6 +440,7 @@ public:
             });
         }
 
+        // TODO: Allow this behavior to be enabled/disabled at runtime.
         //
         // Wait for the no-op write to be majority committed.
         //
