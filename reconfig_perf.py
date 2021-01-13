@@ -40,7 +40,7 @@ def write_thread(k):
     client = pymongo.MongoClient('localhost', 28000)
     db = client[db_name]
     collection = db[coll_name]
-    collection = collection.with_options(write_concern=pymongo.WriteConcern(w="majority"))
+    collection = collection.with_options(write_concern=pymongo.WriteConcern(w="majority",wtimeout=100))
     longStr = "a"*1024
     time_limit_secs = 10
     i=0
@@ -48,11 +48,15 @@ def write_thread(k):
     while (time.time()-tbegin) < time_limit_secs:
         doc = {"tid": k, "x": i, "data": longStr}
         start = time.time()
-        res = collection.insert_one(doc)
-        assert res.acknowledged
-        latencyMS = (time.time() - start) * 1000.0
-        if i%10 == 0:
-            print("w:majority write latency: %d ms" % latencyMS)
+        try:
+            res = collection.insert_one(doc)
+            assert res.acknowledged
+            latencyMS = (time.time() - start) * 1000.0
+            if i%10 == 0:
+                print("w:majority write latency: %d ms" % latencyMS)
+        except pymongo.errors.WTimeoutError as e:
+                latencyMS = (time.time() - start) * 1000.0
+                print("w:majority write TIMEOUT: %d ms" % latencyMS)
         i+=1
 
 
