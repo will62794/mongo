@@ -7,13 +7,6 @@ def avg(vals):
 
 client = pymongo.MongoClient('localhost', 28000)
 
-# Disable any previous failpoints.
-print("Disabling previous failpoints.")
-for i in [0,1,2,3,4]:
-    nclient = pymongo.MongoClient('localhost', 28000 + i)
-    res = nclient.admin.command({"configureFailPoint": 'rsSyncApplyStop', "mode": 'off'})
-    assert res["ok"] == 1.0
-
 res = client.admin.command("ismaster")
 print(res)
 
@@ -36,7 +29,7 @@ coll_name = "test-coll"
 print("Removing all documents from '%s.%s'" % (db_name, coll_name))
 db = client[db_name][coll_name].delete_many({})
 
-def write_thread(k, time_limit_secs):
+def write_thread(k, time_limit_secs, tag):
     client = pymongo.MongoClient('localhost', 28000)
     write_latencies = []
     db = client[db_name]
@@ -54,7 +47,7 @@ def write_thread(k, time_limit_secs):
             assert res.acknowledged
             latencyMS = (time.time() - start) * 1000.0
             write_latencies.append((currtime,latencyMS))
-            if i%10 == 0:
+            if i%20 == 0:
                 print("w:majority write latency: %d ms" % latencyMS)
         except pymongo.errors.WTimeoutError as e:
                 latencyMS = (time.time() - start) * 1000.0
@@ -63,7 +56,8 @@ def write_thread(k, time_limit_secs):
         i+=1
 
     # Save the write latencies to a file, one per row.
-    f = open("write-latencies.csv", 'w')
+    fname = "graphs/write-latencies-%s.csv" % tag
+    f = open(fname, 'w')
     for (t,l) in write_latencies:
         f.write(str(t)+","+str(l))
         f.write("\n")
@@ -87,13 +81,6 @@ print("*** initial reconfig")
 res = client.admin.command("replSetReconfig", config)
 assert res["ok"] == 1.0
 
-# Remove votes from n3 and n4.
-for mi in [3,4]:
-    config["version"] = config["version"] + 1
-    config["members"][mi]["votes"] = 0
-    res = client.admin.command("replSetReconfig", config)
-    assert res["ok"] == 1.0
-
 # Introduce simulated degradation by stopping replication on two 
 # voting secondaries and then restarting it after a few seconds.
 def fault_injector_thread(degrade_secs, ports):
@@ -114,12 +101,9 @@ def fault_injector_thread(degrade_secs, ports):
         assert res["ok"] == 1.0
     print("Degradation period over.")
 
-#
-# EXPERIMENT BEGINS.
-#
 
 # Run the experiment for this much time.
-TOTAL_DURATION_SECS = 20
+TOTAL_DURATION_SECS = 40
 # How much time elapses between degraded modes.
 BETWEEN_DEGRADED_SECS = 5
 # How long degraded period lasts.
@@ -127,64 +111,99 @@ DEGRADE_DURATION_SECS = 2.5
 # How long we simulate that it takes for the system to detect a degradation.
 DETECT_DEGRADE_SECS = 0.5
 
-# Start the writer threads.
-nWriters = 1
-writers = []
-# TODO: Pass experiment duration to the writers.
-for tid in range(nWriters):
-    print("Starting writer thread %d" % tid)
-    t = threading.Thread(target=write_thread, args=(tid,TOTAL_DURATION_SECS,))
-    t.start()
-    writers.append(t)
+def reconfig_test(enableRaftBehavior, tag):
+    """ The main experiment. """
 
-iteration = 0
-start_time = time.time()
-degraded_nodes = [1,2]
-healthy_nodes = [3,4]
-while (time.time()-start_time) < TOTAL_DURATION_SECS:
+    # Disable any previous failpoints.
+    print("Disabling previous failpoints.")
+    for i in [0,1,2,3,4]:
+        nclient = pymongo.MongoClient('localhost', 28000 + i)
+        res = nclient.admin.command({"configureFailPoint": 'rsSyncApplyStop', "mode": 'off'})
+        assert res["ok"] == 1.0
 
+    # Set the failpoint that simulates Raft behavior, if needed.
+    failpoint_setting = "alwaysOn" if enableRaftBehavior else "off"
+    primaryclient = pymongo.MongoClient('localhost', 28000)
+    res = primaryclient.admin.command({"configureFailPoint": 'enableMajorityNoopWriteOnReconfig', "mode": failpoint_setting})
+    assert res["ok"] == 1.0
 
-    # Let the system run for N seconds, then introduce slowness on the 
-    # secondaries by pausing replication temporarily.
-    time.sleep(BETWEEN_DEGRADED_SECS)
-
-    # Run the fault injection thread.
-
-    degraded_ports = [28000+n for n in degraded_nodes]
-    tfault = threading.Thread(target=fault_injector_thread,args=(DEGRADE_DURATION_SECS,degraded_ports,))
-    tfault.start()
-
-    # Simulate quick failure detection.
-    print("Simulated wait to detect degradation.")
-    time.sleep(DETECT_DEGRADE_SECS)
-
-    # Now reconfigure to add in two healthy nodes.
-    print("Degradation detected. Trying to add two new healthy nodes.")
-    for mi in healthy_nodes:
-        config["version"] = config["version"] + 1
-        config["members"][mi]["votes"] = 1
-        start = time.time()
-        res = client.admin.command("replSetReconfig", config)
-        durationMS = (time.time() - start) * 1000
-        if res["ok"] == 1.0:
-            print("*** reconfig added healthy node %d in %f ms" % (mi, durationMS))
-
-    # Wait until degraded period has ended.
-    tfault.join()
-
-    # Remove the previously degraded nodes.
-    print("Removing the nodes that were degraded.")
-    for mi in degraded_nodes:
+    # Give votes to n1 and n2.
+    for mi in [3,4]:
         config["version"] = config["version"] + 1
         config["members"][mi]["votes"] = 0
-        start = time.time()
         res = client.admin.command("replSetReconfig", config)
-        durationMS = (time.time() - start) * 1000
-        if res["ok"] == 1.0:
-            print("*** reconfig removed degraded node %d in %f ms" % (mi, durationMS))
-    
-    # Now swap the set of healthy nodes and degraded nodes for the next iteration.
-    degraded_nodes, healthy_nodes = healthy_nodes, degraded_nodes
+        assert res["ok"] == 1.0
 
-for w in writers:
-    w.join()
+    # Remove votes from n3 and n4.
+    for mi in [3,4]:
+        config["version"] = config["version"] + 1
+        config["members"][mi]["votes"] = 0
+        res = client.admin.command("replSetReconfig", config)
+        assert res["ok"] == 1.0
+
+    # Start the writer threads.
+    nWriters = 1
+    writers = []
+    # TODO: Pass experiment duration to the writers.
+    for tid in range(nWriters):
+        print("Starting writer thread %d" % tid)
+        t = threading.Thread(target=write_thread, args=(tid,TOTAL_DURATION_SECS,tag,))
+        t.start()
+        writers.append(t)
+
+    iteration = 0
+    start_time = time.time()
+    degraded_nodes = [1,2]
+    healthy_nodes = [3,4]
+    while (time.time()-start_time) < TOTAL_DURATION_SECS:
+
+        # Let the system run for N seconds, then introduce slowness on the 
+        # secondaries by pausing replication temporarily.
+        time.sleep(BETWEEN_DEGRADED_SECS)
+
+        # Run the fault injection thread.
+        degraded_ports = [28000+n for n in degraded_nodes]
+        tfault = threading.Thread(target=fault_injector_thread,args=(DEGRADE_DURATION_SECS,degraded_ports,))
+        tfault.start()
+
+        # Simulate quick failure detection.
+        print("Simulated wait to detect degradation.")
+        time.sleep(DETECT_DEGRADE_SECS)
+
+        # Now reconfigure to add in two healthy nodes.
+        print("Degradation detected. Trying to add two new healthy nodes.")
+        for mi in healthy_nodes:
+            config["version"] = config["version"] + 1
+            config["members"][mi]["votes"] = 1
+            start = time.time()
+            res = client.admin.command("replSetReconfig", config)
+            durationMS = (time.time() - start) * 1000
+            if res["ok"] == 1.0:
+                print("*** reconfig added healthy node %d in %f ms" % (mi, durationMS))
+
+        # Wait until degraded period has ended.
+        tfault.join()
+
+        # Remove the previously degraded nodes.
+        print("Removing the nodes that were degraded.")
+        for mi in degraded_nodes:
+            config["version"] = config["version"] + 1
+            config["members"][mi]["votes"] = 0
+            start = time.time()
+            res = client.admin.command("replSetReconfig", config)
+            durationMS = (time.time() - start) * 1000
+            if res["ok"] == 1.0:
+                print("*** reconfig removed degraded node %d in %f ms" % (mi, durationMS))
+        
+        # Now swap the set of healthy nodes and degraded nodes for the next iteration.
+        degraded_nodes, healthy_nodes = healthy_nodes, degraded_nodes
+
+    for w in writers:
+        w.join()
+
+#
+# Run the experiments, once with logless reconfig, and once with simulate Raft reconfig behavior.
+#
+
+reconfig_test(False, "logless")
+# reconfig_test(True, "standardraft")

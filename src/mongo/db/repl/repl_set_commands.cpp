@@ -75,6 +75,8 @@
 namespace mongo {
 namespace repl {
 
+MONGO_FAIL_POINT_DEFINE(enableMajorityNoopWriteOnReconfig);
+
 using std::string;
 using std::stringstream;
 
@@ -425,38 +427,39 @@ public:
         uassertStatusOK(status);
 
 
-        // To simulate the reconfig algorithm of standard Raft, write a no-op entry and wait for it to be committed.
-        // In Raft this would be an oplog entry that represents the new config, that needs to become committed before
-        // the reconfig can be acknowledged.
-        {
-            Lock::GlobalLock lock(opCtx, MODE_IX, Date_t::now() + Milliseconds(1), Lock::InterruptBehavior::kLeaveUnlocked);
-            LOGV2(9508702, "Writing reconfig no-op to simulate Raft reconfig.");
-            writeConflictRetry(
-                opCtx, "writeNoop", NamespaceString::kRsOplogNamespace.ns(), [&opCtx] {
-                    WriteUnitOfWork uow(opCtx);
-                    const auto kMsgObj = BSON("msg" << "reconfig noop");
-                    opCtx->getClient()->getServiceContext()->getOpObserver()->onOpMessage(opCtx, kMsgObj);
-                    uow.commit();
-            });
-        }
-
-        // TODO: Allow this behavior to be enabled/disabled at runtime.
-        //
-        // Wait for the no-op write to be majority committed.
-        //
-        const WriteConcernOptions kMajorityWriteConcern(WriteConcernOptions::kMajority,
-                                                WriteConcernOptions::SyncMode::UNSET,
-                                                Milliseconds(60*1000));
-        auto lastApplied = replCoord->getMyLastAppliedOpTime();
-        WriteConcernResult writeConcernResult;
-        writeConcernResult.wTimedOut = false;
-
-        Status majorityStatus = waitForWriteConcern(opCtx, lastApplied, kMajorityWriteConcern, &writeConcernResult);
-        if (!majorityStatus.isOK()) {
-            if (!writeConcernResult.wTimedOut) {
-                uassertStatusOK(majorityStatus);
+        if (MONGO_unlikely(enableMajorityNoopWriteOnReconfig.shouldFail())) {
+            // To simulate the reconfig algorithm of standard Raft, write a no-op entry and wait for it to be committed.
+            // In Raft this would be an oplog entry that represents the new config, that needs to become committed before
+            // the reconfig can be acknowledged.
+            {
+                Lock::GlobalLock lock(opCtx, MODE_IX, Date_t::now() + Milliseconds(1), Lock::InterruptBehavior::kLeaveUnlocked);
+                LOGV2(9508702, "Writing reconfig no-op to simulate Raft reconfig.");
+                writeConflictRetry(
+                    opCtx, "writeNoop", NamespaceString::kRsOplogNamespace.ns(), [&opCtx] {
+                        WriteUnitOfWork uow(opCtx);
+                        const auto kMsgObj = BSON("msg" << "reconfig noop");
+                        opCtx->getClient()->getServiceContext()->getOpObserver()->onOpMessage(opCtx, kMsgObj);
+                        uow.commit();
+                });
             }
-            return false;
+
+            //
+            // Wait for the no-op write to be majority committed.
+            //
+            const WriteConcernOptions kMajorityWriteConcern(WriteConcernOptions::kMajority,
+                                                    WriteConcernOptions::SyncMode::UNSET,
+                                                    Milliseconds(60*1000));
+            auto lastApplied = replCoord->getMyLastAppliedOpTime();
+            WriteConcernResult writeConcernResult;
+            writeConcernResult.wTimedOut = false;
+
+            Status majorityStatus = waitForWriteConcern(opCtx, lastApplied, kMajorityWriteConcern, &writeConcernResult);
+            if (!majorityStatus.isOK()) {
+                if (!writeConcernResult.wTimedOut) {
+                    uassertStatusOK(majorityStatus);
+                }
+                return false;
+            }
         }
 
 
