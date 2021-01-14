@@ -103,7 +103,7 @@ def fault_injector_thread(degrade_secs, ports):
 
 
 # Run the experiment for this much time.
-TOTAL_DURATION_SECS = 20
+TOTAL_DURATION_SECS = 60
 # How much time elapses between degraded modes.
 BETWEEN_DEGRADED_SECS = 5
 # How long degraded period lasts.
