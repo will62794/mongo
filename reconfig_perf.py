@@ -103,7 +103,7 @@ def fault_injector_thread(degrade_secs, ports):
 
 
 # Run the experiment for this much time.
-TOTAL_DURATION_SECS = 40
+TOTAL_DURATION_SECS = 20
 # How much time elapses between degraded modes.
 BETWEEN_DEGRADED_SECS = 5
 # How long degraded period lasts.
@@ -151,11 +151,19 @@ def reconfig_test(enableRaftBehavior, tag):
         t.start()
         writers.append(t)
 
+    # Create file for saving fault events.
+    fname = "graphs/fault-events-%s.csv" % tag
+    f = open(fname, 'w')
+    f.close()
+
     iteration = 0
     start_time = time.time()
     degraded_nodes = [1,2]
     healthy_nodes = [3,4]
+    stateid = {"steady":0, "degraded":1}
+    fault_events = [(0, stateid["steady"])]
     while (time.time()-start_time) < TOTAL_DURATION_SECS:
+
 
         # Let the system run for N seconds, then introduce slowness on the 
         # secondaries by pausing replication temporarily.
@@ -166,9 +174,12 @@ def reconfig_test(enableRaftBehavior, tag):
         tfault = threading.Thread(target=fault_injector_thread,args=(DEGRADE_DURATION_SECS,degraded_ports,))
         tfault.start()
 
+        fault_events.append((time.time()-start_time, stateid["degraded"]))
+
         # Simulate quick failure detection.
         print("Simulated wait to detect degradation.")
         time.sleep(DETECT_DEGRADE_SECS)
+
 
         # Now reconfigure to add in two healthy nodes.
         print("Degradation detected. Trying to add two new healthy nodes.")
@@ -183,6 +194,8 @@ def reconfig_test(enableRaftBehavior, tag):
 
         # Wait until degraded period has ended.
         tfault.join()
+
+        fault_events.append((time.time()-start_time, stateid["steady"]))
 
         # Remove the previously degraded nodes.
         print("Removing the nodes that were degraded.")
@@ -201,9 +214,17 @@ def reconfig_test(enableRaftBehavior, tag):
     for w in writers:
         w.join()
 
+    # Create file for saving fault events.
+    fname = "graphs/fault-events-%s.csv" % tag
+    f = open(fname, 'w')
+    for (t,e) in fault_events:
+        f.write(str(t)+","+str(e))
+        f.write("\n")
+    f.close()
+
 #
 # Run the experiments, once with logless reconfig, and once with simulate Raft reconfig behavior.
 #
 
 reconfig_test(False, "logless")
-# reconfig_test(True, "standardraft")
+reconfig_test(True, "standardraft")
