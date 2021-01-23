@@ -9,6 +9,7 @@ set palette model RGB defined ( 0 '#e55964', 1 "white" )
 unset colorbox
 
 set yrange [-20:];
+set xrange [*:60]
 set key off
 set title 'Majority Write Latencies with Raft Reconfiguration'
 plot "write-latencies-standardraft.csv" using 1:2 with lines lt 3, \
@@ -18,8 +19,6 @@ set title 'Majority Write Latencies with Logless Reconfiguration'
 plot "write-latencies-logless.csv" using 1:2 with lines lt 4, \
 "fault-events-logless.csv" using ($1):($2*0-10):($2) with lines palette lw 4
 
-
-# "fault-events-logless.csv" using 1:2:yticlabels(2) with steps
 
 # set style fill solid
 # plot "fault-events-logless.csv" using 1:(1):2 with boxes
