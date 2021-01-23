@@ -5,13 +5,13 @@ import threading
 def avg(vals):
     return sum(vals)/float(len(vals))
 
+#
+# Initiate the replica set first if it has not already been initiated.
+#
+
 client = pymongo.MongoClient('localhost', 28000)
-
 res = client.admin.command("ismaster")
-print(res)
-
 if "setName" not in res:
-    # Initiate the replica set first.
     initConfig = {'_id': 'will-replset', 'members': [
         {'_id': 0, 'host': 'localhost:28000'},
         {'_id': 1, 'host': 'localhost:28001'},
@@ -20,58 +20,26 @@ if "setName" not in res:
         {'_id': 4, 'host': 'localhost:28004'}]}
     res = client.admin.command("replSetInitiate", initConfig)
 
+# Connect with a replset connection.
 client = pymongo.MongoClient('localhost', 28000, replicaset='will-replset')
 
 db_name = "test-db"
 coll_name = "test-coll"
 
-# Remove all documents from test collection.
+# Remove all documents from the test collection.
 print("Removing all documents from '%s.%s'" % (db_name, coll_name))
-db = client[db_name][coll_name].delete_many({})
+client[db_name][coll_name].delete_many({})
 
-def write_thread(k, time_limit_secs, tag):
-    client = pymongo.MongoClient('localhost', 28000)
-    write_latencies = []
-    db = client[db_name]
-    collection = db[coll_name]
-    collection = collection.with_options(write_concern=pymongo.WriteConcern(w="majority",wtimeout=100))
-    longStr = "a"*1024
-    i=0
-    tbegin = time.time() 
-    while (time.time()-tbegin) < time_limit_secs:
-        doc = {"tid": k, "x": i, "data": longStr}
-        currtime = time.time()-tbegin
-        start = time.time()
-        try:
-            res = collection.insert_one(doc)
-            assert res.acknowledged
-            latencyMS = (time.time() - start) * 1000.0
-            write_latencies.append((currtime,latencyMS))
-            if i%20 == 0:
-                print("w:majority write latency: %d ms" % latencyMS)
-        except pymongo.errors.WTimeoutError as e:
-                latencyMS = (time.time() - start) * 1000.0
-                write_latencies.append((currtime,latencyMS))
-                print("w:majority write TIMEOUT: %d ms" % latencyMS)
-        i+=1
-
-    # Save the write latencies to a file, one per row.
-    fname = "graphs/write-latencies-%s.csv" % tag
-    f = open(fname, 'w')
-    for (t,l) in write_latencies:
-        f.write(str(t)+","+str(l))
-        f.write("\n")
-    f.close()
-
+# Retrieve the current configuration.
 res = client.admin.command("replSetGetConfig")
 config = res["config"]
 
-# Set heartbeat interval.
-heartbeatIntervalMS = 2000 # milliseconds.
-
-# Make secondaries unelectable
+# Make all secondaries unelectable.
 for mi in [1,2,3,4]:
     config["members"][mi]["priority"] = 0
+
+# The heartbeat interval to set initially.
+heartbeatIntervalMS = 2000
 
 settings = config["settings"]
 settings["heartbeatIntervalMillis"] = heartbeatIntervalMS
@@ -80,6 +48,50 @@ config["settings"] = settings
 print("*** initial reconfig")
 res = client.admin.command("replSetReconfig", config)
 assert res["ok"] == 1.0
+
+def write_thread(time_limit_secs, tag, killEv):
+    """ 
+    Starts up a thread that connects to server and continually inserts documents into
+    a test collection with w:majority. Records the latency of each write and writes it to a file when
+    the thread terminates. Keeps running until it is killed by external event.
+    """
+    client = pymongo.MongoClient('localhost', 28000)
+    write_latencies = []
+    db = client[db_name]
+    collection = db[coll_name]
+    collection = collection.with_options(write_concern=pymongo.WriteConcern(w="majority",wtimeout=100))
+    
+    # Constants for recording whether a write succeeded or timed out.
+    WRITE_ACK = 1
+    WRITE_TIMEOUT = 0 
+    payload = "a"*1024
+    i=0
+    tbegin = time.time() 
+    while not killEv.is_set():
+        doc = {"x": i, "data": payload}
+        curr_time = time.time()-tbegin
+        write_start_time = time.time()
+        try:
+            res = collection.insert_one(doc)
+            assert res.acknowledged
+            latencyMS = (time.time() - write_start_time) * 1000.0
+            write_latencies.append((curr_time,latencyMS, WRITE_ACK))
+            if i%20 == 0:
+                print("w:majority write latency: %d ms" % latencyMS)
+        except pymongo.errors.WTimeoutError as e:
+            # Capture timeout errors as well and record their latency.
+            latencyMS = (time.time() - write_start_time) * 1000.0
+            write_latencies.append((curr_time,latencyMS, WRITE_TIMEOUT))
+            print("w:majority write TIMEOUT: %d ms" % latencyMS)
+        i+=1
+
+    # Save the write latencies to a file, one per row.
+    fname = "graphs/write-latencies-%s.csv" % tag
+    f = open(fname, 'w')
+    for (t,l,res) in write_latencies:
+        f.write(str(t)+","+str(l)+","+str(res))
+        f.write("\n")
+    f.close()
 
 # Introduce simulated degradation by stopping replication on two 
 # voting secondaries and then restarting it after a few seconds.
@@ -121,20 +133,26 @@ def reconfig_test(enableRaftBehavior, tag):
         res = nclient.admin.command({"configureFailPoint": 'rsSyncApplyStop', "mode": 'off'})
         assert res["ok"] == 1.0
 
+    primaryclient = pymongo.MongoClient('localhost', 28000)
+    
+    # Verify the primary.
+    res = primaryclient.admin.command("ismaster")
+    assert res["ismaster"]
+
     # Set the failpoint that simulates Raft behavior, if needed.
     failpoint_setting = "alwaysOn" if enableRaftBehavior else "off"
-    primaryclient = pymongo.MongoClient('localhost', 28000)
     res = primaryclient.admin.command({"configureFailPoint": 'enableMajorityNoopWriteOnReconfig', "mode": failpoint_setting})
     assert res["ok"] == 1.0
 
-    # Give votes to n1 and n2.
-    for mi in [3,4]:
+    #
+    # Make sure that n1 and n2 initally have votes and that n3 and n4 do not.
+    #
+    for mi in [1,2]:
         config["version"] = config["version"] + 1
-        config["members"][mi]["votes"] = 0
+        config["members"][mi]["votes"] = 1
         res = client.admin.command("replSetReconfig", config)
         assert res["ok"] == 1.0
 
-    # Remove votes from n3 and n4.
     for mi in [3,4]:
         config["version"] = config["version"] + 1
         config["members"][mi]["votes"] = 0
@@ -142,14 +160,10 @@ def reconfig_test(enableRaftBehavior, tag):
         assert res["ok"] == 1.0
 
     # Start the writer threads.
-    nWriters = 1
-    writers = []
-    # TODO: Pass experiment duration to the writers.
-    for tid in range(nWriters):
-        print("Starting writer thread %d" % tid)
-        t = threading.Thread(target=write_thread, args=(tid,TOTAL_DURATION_SECS,tag,))
-        t.start()
-        writers.append(t)
+    writerKillEv = threading.Event()
+    print("Starting writer thread.")
+    writerThread = threading.Thread(target=write_thread, args=(TOTAL_DURATION_SECS,tag,writerKillEv))
+    writerThread.start()
 
     # Create file for saving fault events.
     fname = "graphs/fault-events-%s.csv" % tag
@@ -160,10 +174,10 @@ def reconfig_test(enableRaftBehavior, tag):
     start_time = time.time()
     degraded_nodes = [1,2]
     healthy_nodes = [3,4]
-    stateid = {"steady":0, "degraded":1}
-    fault_events = [(0, stateid["steady"])]
+    STATE_STEADY = 0
+    STATE_DEGRADED = 1
+    fault_events = [(0, STATE_STEADY)]
     while (time.time()-start_time) < TOTAL_DURATION_SECS:
-
 
         # Let the system run for N seconds, then introduce slowness on the 
         # secondaries by pausing replication temporarily.
@@ -171,15 +185,14 @@ def reconfig_test(enableRaftBehavior, tag):
 
         # Run the fault injection thread.
         degraded_ports = [28000+n for n in degraded_nodes]
-        tfault = threading.Thread(target=fault_injector_thread,args=(DEGRADE_DURATION_SECS,degraded_ports,))
-        tfault.start()
+        faultInjectorThread = threading.Thread(target=fault_injector_thread,args=(DEGRADE_DURATION_SECS,degraded_ports,))
+        faultInjectorThread.start()
 
-        fault_events.append((time.time()-start_time, stateid["degraded"]))
+        fault_events.append((time.time()-start_time, STATE_DEGRADED))
 
         # Simulate quick failure detection.
         print("Simulated wait to detect degradation.")
         time.sleep(DETECT_DEGRADE_SECS)
-
 
         # Now reconfigure to add in two healthy nodes.
         print("Degradation detected. Trying to add two new healthy nodes.")
@@ -193,9 +206,9 @@ def reconfig_test(enableRaftBehavior, tag):
                 print("*** reconfig added healthy node %d in %f ms" % (mi, durationMS))
 
         # Wait until degraded period has ended.
-        tfault.join()
+        faultInjectorThread.join()
 
-        fault_events.append((time.time()-start_time, stateid["steady"]))
+        fault_events.append((time.time()-start_time, STATE_STEADY))
 
         # Remove the previously degraded nodes.
         print("Removing the nodes that were degraded.")
@@ -208,11 +221,12 @@ def reconfig_test(enableRaftBehavior, tag):
             if res["ok"] == 1.0:
                 print("*** reconfig removed degraded node %d in %f ms" % (mi, durationMS))
         
-        # Now swap the set of healthy nodes and degraded nodes for the next iteration.
+        # Swap the set of healthy nodes and degraded nodes for the next iteration.
         degraded_nodes, healthy_nodes = healthy_nodes, degraded_nodes
 
-    for w in writers:
-        w.join()
+    # Shut down the writer thread and wait for it to finish.
+    writerKillEv.set()
+    writerThread.join()
 
     # Create file for saving fault events.
     fname = "graphs/fault-events-%s.csv" % tag
