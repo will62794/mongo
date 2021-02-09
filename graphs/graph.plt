@@ -2,7 +2,7 @@ set term pdf
 set datafile separator ","
 set output "write-latencies-out.pdf"
 set xlabel "Time (s)"
-set ylabel "latency (ms)"
+set ylabel "Latency (ms)"
 set multiplot layout 2,1 rowsfirst
 
 set palette model RGB defined ( 0 'orange', 1 "white", 2 "red", 3 "sea-green")
