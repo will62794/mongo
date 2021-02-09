@@ -10,6 +10,7 @@ unset colorbox
 
 set yrange [-20:];
 set xrange [*:60]
+set xtics 0,5,60
 set key off
 set title 'Majority Write Latencies with Raft Reconfiguration'
 plot "write-latencies-standardraft.csv" using 1:2:($3+2) with points palette pt 2 ps 0.25 lt 8 lw 0.1, \

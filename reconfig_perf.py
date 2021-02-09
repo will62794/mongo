@@ -1,9 +1,22 @@
 import pymongo
 import time
 import threading
+import sys
 
 def avg(vals):
     return sum(vals)/float(len(vals))
+
+# Parse command line argument.
+# Pass either 'logless' or 'standardraft' as arguments to determine which test to run.
+TESTARG = None
+if len(sys.argv)<2:
+    print("Missing argument.\nUsage: \n\t python reconfig_perf.py <'logless'|'standardraft'>")
+    exit(0)
+else:
+    TESTARG = sys.argv[1]
+    if TESTARG not in ["logless", "standardraft"]:
+        print("Error: unknown argument: '%s'" % TESTARG)
+        exit(0)
 
 #
 # Initiate the replica set first if it has not already been initiated.
@@ -115,7 +128,7 @@ def fault_injector_thread(degrade_secs, ports):
 
 
 # Run the experiment for this much time.
-TOTAL_DURATION_SECS = 60
+TOTAL_DURATION_SECS = 30
 # How much time elapses between degraded modes.
 BETWEEN_DEGRADED_SECS = 5
 # How long degraded period lasts.
@@ -237,8 +250,12 @@ def reconfig_test(enableRaftBehavior, tag):
     f.close()
 
 #
-# Run the experiments, once with logless reconfig, and once with simulate Raft reconfig behavior.
+# Run the experiment, based on command line argument passed.
 #
+if TESTARG == "logless":
+    reconfig_test(False, TESTARG)
+if TESTARG == "standardraft":
+    reconfig_test(True, TESTARG)
 
-reconfig_test(False, "logless")
-reconfig_test(True, "standardraft")
+# reconfig_test(False, "logless")
+# reconfig_test(True, "standardraft")
