@@ -190,6 +190,7 @@ def reconfig_test(enableRaftBehavior, tag):
     STATE_STEADY = 0
     STATE_DEGRADED = 1
     fault_events = [(0, STATE_STEADY)]
+    reconfig_events = []
     while (time.time()-start_time) < TOTAL_DURATION_SECS:
 
         # Let the system run for N seconds, then introduce slowness on the 
@@ -207,6 +208,8 @@ def reconfig_test(enableRaftBehavior, tag):
         print("Simulated wait to detect degradation.")
         time.sleep(DETECT_DEGRADE_SECS)
 
+        EVENT_RECONFIG_ADD_HEALTHY = 4
+        EVENT_RECONFIG_REMOVE_DEGRADED = 4
         # Now reconfigure to add in two healthy nodes.
         print("Degradation detected. Trying to add two new healthy nodes.")
         for mi in healthy_nodes:
@@ -217,13 +220,10 @@ def reconfig_test(enableRaftBehavior, tag):
             durationMS = (time.time() - start) * 1000
             if res["ok"] == 1.0:
                 print("*** reconfig added healthy node %d in %f ms" % (mi, durationMS))
+                # Record the successful reconfig.
+                reconfig_events.append((time.time()-start_time, EVENT_RECONFIG_ADD_HEALTHY))
 
-        # Wait until degraded period has ended.
-        faultInjectorThread.join()
-
-        fault_events.append((time.time()-start_time, STATE_STEADY))
-
-        # Remove the previously degraded nodes.
+        # Remove the degraded nodes.
         print("Removing the nodes that were degraded.")
         for mi in degraded_nodes:
             config["version"] = config["version"] + 1
@@ -233,7 +233,19 @@ def reconfig_test(enableRaftBehavior, tag):
             durationMS = (time.time() - start) * 1000
             if res["ok"] == 1.0:
                 print("*** reconfig removed degraded node %d in %f ms" % (mi, durationMS))
-        
+                reconfig_events.append((time.time()-start_time, EVENT_RECONFIG_REMOVE_DEGRADED))
+
+        # Wait until degraded period has ended.
+        faultInjectorThread.join()
+
+        fault_events.append((time.time()-start_time, STATE_STEADY))
+
+        # Wait for degration to clear up, and then remove the
+        # originally degraded nodes.
+        # time.sleep(0.5)
+
+
+
         # Swap the set of healthy nodes and degraded nodes for the next iteration.
         degraded_nodes, healthy_nodes = healthy_nodes, degraded_nodes
 
@@ -241,10 +253,20 @@ def reconfig_test(enableRaftBehavior, tag):
     writerKillEv.set()
     writerThread.join()
 
+    print("Saving event data points to files.")
+
     # Create file for saving fault events.
     fname = "graphs/fault-events-%s.csv" % tag
     f = open(fname, 'w')
     for (t,e) in fault_events:
+        f.write(str(t)+","+str(e))
+        f.write("\n")
+    f.close()
+
+    # Create file for saving reconfig events.
+    fname = "graphs/reconfig-events-%s.csv" % tag
+    f = open(fname, 'w')
+    for (t,e) in reconfig_events:
         f.write(str(t)+","+str(e))
         f.write("\n")
     f.close()

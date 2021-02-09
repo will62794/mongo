@@ -9,18 +9,21 @@ set palette model RGB defined ( 0 'orange', 1 "white", 2 "red", 3 "sea-green")
 unset colorbox
 
 set yrange [-20:];
-set xrange [*:60]
+set xrange [*:40]
 set xtics 0,5,60
 set key off
 set title 'Majority Write Latencies with Raft Reconfiguration'
 plot "write-latencies-standardraft.csv" using 1:2:($3+2) with points palette pt 2 ps 0.25 lt 8 lw 0.1, \
-"fault-events-standardraft.csv" using ($1):($2*0-5):($2) with lines palette lw 6
+"fault-events-standardraft.csv" using ($1):($2*0-5):($2) with lines palette lw 6, \
+"reconfig-events-standardraft.csv" using ($1):(120) with impulses lc rgb "#880000ff" lw 0.1 lt 5 dt 1 #points lt 8 lw 0.25 lc "blue"
+
 
 set palette model RGB defined ( 0 'orange', 1 "white", 2 "red", 3 "dark-turquoise")
 
 set title 'Majority Write Latencies with Logless Reconfiguration'
 plot "write-latencies-logless.csv" using 1:2:($3+2) with points palette pt 2 ps 0.25 lt 4 lw 0.1, \
-"fault-events-logless.csv" using ($1):($2*0-5):($2) with lines palette lw 6
+"fault-events-logless.csv" using ($1):($2*0-5):($2) with lines palette lw 6, \
+"reconfig-events-logless.csv" using ($1):(120) with impulses lc rgb "#880000ff" lw 0.1 lt 5 dt 1 #ps 0.5 lt 8 lw 0.25 lc "blue"
 
 
 # set style fill solid
