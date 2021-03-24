@@ -19,6 +19,9 @@ CONSTANTS Server
 \* Server states.
 CONSTANTS Leader, Follower, Down
 
+\* A subet of Server that designates which servers are arbiters. Can be empty.
+CONSTANT Arbiter
+
 (**************************************************************************************************)
 (* Global variables                                                                               *)
 (**************************************************************************************************)
@@ -68,6 +71,9 @@ vars == <<serverVars, log, immediatelyCommitted, config, configVersion, configTe
 (**************************************************************************************************)
 (* Generic helper operators                                                                       *)
 (**************************************************************************************************)
+
+\* Non-arbiter nodes.
+WritableNodes == Server \ Arbiter
 
 \* The set of all quorums of a given set.
 Quorums(S) == {i \in SUBSET(S) : Cardinality(i) * 2 > Cardinality(S)}
@@ -147,6 +153,7 @@ RollbackEntries(i, j) ==
 (* Node 'i' gets a new log entry from node 'j'.                               *)
 (******************************************************************************)
 GetEntry(i, j) ==
+    /\ i \notin Arbiter \* Arbiters do not replicate data.
     /\ j \in config[i]
     /\ state[i] = Follower
     \* Node j must have more entries than node i.
@@ -165,11 +172,40 @@ GetEntry(i, j) ==
     /\ UNCHANGED <<immediatelyCommitted, configVars>>
 
 
+\* Arbiters behave as unelectable secondaries with no logs, but there is also a
+\* special alteration to commit majorities in presence of arbiters. 
+\* If the number of writable nodes in a set is less than a majority, then we allow
+\* quorums that contain just the set of writable nodes.
+
+\* number of writable members in the set is less than the write majority, then
+\* use that number for a valid commit quorum i.e. if every majority quorum in
+\* the set contains an arbiter, then allow use of a quorum that doesn't contain
+\* that arbiter.
+
 \* Check whether the entry at "index" on "primary" is committed in the primary's current config.
 IsCommitted(index, primary) ==
     \* The entry was written by this leader.
     /\ LogTerm(primary, index) = currentTerm[primary]
-    /\ \E quorum \in Quorums(config[primary]):
+    \* /\ PrintT(ArbiterQuorums(config[primary]))
+    /\ \E quorum \in (Quorums(config[primary])):
+        \* all nodes have this log entry and are in the term of the leader.
+        \A s \in quorum:
+            /\ Len(log[s]) >= index
+            /\ log[s][index] = log[primary][index]    \* they have the entry.
+            /\ currentTerm[s] = currentTerm[primary]  \* they are in the same term.
+
+
+ArbiterQuorums(S) == 
+    LET WritableInS == {s \in S : s \in WritableNodes} IN
+    IF Cardinality(WritableInS) * 2 > Cardinality(S) THEN {}
+    ELSE {WritableInS}
+
+\* Check whether the entry at "index" on "primary" is committed in the primary's current config.
+IsCommittedWithArbiter(index, primary) ==
+    \* The entry was written by this leader.
+    /\ LogTerm(primary, index) = currentTerm[primary]
+    \* /\ PrintT(ArbiterQuorums(config[primary]))
+    /\ \E quorum \in (Quorums(config[primary]) \cup ArbiterQuorums(config[primary])):
         \* all nodes have this log entry and are in the term of the leader.
         \A s \in quorum:
             /\ Len(log[s]) >= index
@@ -187,7 +223,7 @@ CommitEntry(i) ==
     /\ ~Empty(log[i])
     \* This node is leader.
     /\ state[i] = Leader
-    /\ IsCommitted(Len(log[i]), i)
+    /\ IsCommittedWithArbiter(Len(log[i]), i)
     /\ immediatelyCommitted' = immediatelyCommitted \cup
             {[index         |-> Len(log[i]),
               term          |-> currentTerm[i],
@@ -216,6 +252,7 @@ BecomeLeader(i) ==
     \* Primaries make decisions based on their current configuration.
     LET newTerm == currentTerm[i] + 1 IN
     \E voteQuorum \in Quorums(config[i]) :
+        /\ i \notin Arbiter \* Arbiters cannot be elected.
         /\ i \in config[i] \* only become a leader if you are a part of your config.
         /\ i \in voteQuorum \* The new leader should vote for itself.
         /\ \A v \in voteQuorum : CanVoteFor(v, i, newTerm)
