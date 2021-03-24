@@ -196,9 +196,12 @@ IsCommitted(index, primary) ==
 
 
 ArbiterQuorums(S) == 
-    LET WritableInS == {s \in S : s \in WritableNodes} IN
-    IF Cardinality(WritableInS) * 2 > Cardinality(S) THEN {}
-    ELSE {WritableInS}
+    LET WritableInS == {s \in S : s \in WritableNodes}
+        ArbitersInS == {s \in S : s \in Arbiter} IN
+    \* If >= half of nodes are arbiters, then we allow the set of all writable
+    \* nodes to be a valid quorum.
+    IF Cardinality(Arbiter) * 2 >= Cardinality(S) THEN {WritableInS}
+    ELSE {}
 
 \* Check whether the entry at "index" on "primary" is committed in the primary's current config.
 IsCommittedWithArbiter(index, primary) ==
@@ -439,6 +442,11 @@ TwoPrimariesInSameTerm ==
 
 \* There should be at most one leader per term.
 ElectionSafety == ~TwoPrimariesInSameTerm
+
+\* When a leader gets elected, it contains all entries committed in previous terms.
+LeaderCompleteness == 
+    \A s \in Server : \A e \in immediatelyCommitted : 
+        (state[s] = Leader /\ (e.term < currentTerm[s])) => EntryInLog(log[s], e.index, e.term)
 
 ConfigVersionIncreasesWithTerm ==
     ~(\E i, j \in Server :
